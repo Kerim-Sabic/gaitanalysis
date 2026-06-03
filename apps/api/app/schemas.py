@@ -49,9 +49,19 @@ class AnalysisStatus(str, Enum):
 
 
 class AnalysisMode(str, Enum):
-    real_mediapipe = "real_mediapipe"  # real pose model ran inference on real frames
+    real_mediapipe = "real_mediapipe"  # real MediaPipe inference on real frames
+    real_mmpose = "real_mmpose"  # real MMPose/RTMPose inference on real frames
     demo_simulated = "demo_simulated"  # simulated keypoints — NOT real patient analysis
     failed = "failed"  # model/inference failed; no metrics produced
+    # Compatibility aliases (same value -> resolve to the canonical members above)
+    # so older code paths using `.demo` / `.clinical` keep working.
+    demo = "demo_simulated"
+    clinical = "real_mediapipe"
+
+    @classmethod
+    def _missing_(cls, value):
+        # Back-compat for results persisted before the provenance-specific values.
+        return {"demo": cls.demo_simulated, "clinical": cls.real_mediapipe}.get(value)
 
 
 class KeypointSource(str, Enum):

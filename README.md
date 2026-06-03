@@ -75,9 +75,50 @@ API docs at <http://localhost:8000/docs>. Health at `/health`.
 Smoke-test the pipeline without the server:
 
 ```bash
-python scripts/smoke_test.py        # runs all four demo presets
-python scripts/integration_test.py  # end-to-end against a running server
+python scripts/smoke_test.py            # runs all four demo presets
+python apps/api/scripts/integration_test.py  # end-to-end against a running server
 ```
+
+### Real AI model setup (MediaPipe)
+
+The default backend is **MediaPipe Pose** — real, on-device 2D pose. Set it up:
+
+```bash
+cd apps/api && source .venv/bin/activate   # (Windows: .venv\Scripts\activate)
+pip install mediapipe                      # real wheel; Python 3.10–3.12, 64-bit
+
+python ../../scripts/download_models.py        # checks env + prepares dirs
+python ../../scripts/verify_models.py          # imports + initializes + runs inference
+python ../../scripts/test_pose_on_sample_video.py  # runs on data/sample_videos/walk_test.mp4
+python ../../scripts/model_healthcheck.py      # full real-analysis chain check
+```
+
+Run the backend with a chosen backend (default is already `mediapipe`):
+
+```bash
+HORALIX_POSE_BACKEND=mediapipe uvicorn app.main:app --port 8000   # real analysis
+HORALIX_POSE_BACKEND=demo      uvicorn app.main:app --port 8000   # demo only
+```
+
+**Real vs Demo (hard separation).** Uploaded videos run **real** MediaPipe
+inference (`analysis_mode = real_mediapipe`, `simulated_data_used = false`). If
+the real model is not installed, real analysis **fails clearly** with
+*"Real pose model is unavailable. Run model setup or switch to Demo Mode."* — it
+never silently falls back. Demo Mode (`analysis_mode = demo_simulated`) uses
+simulated keypoints and is clearly labelled "not real patient analysis"; the gait
+math still measures the (synthetic) motion.
+
+**Verify it's really running:** `GET /models/status` and `GET /models/verify`
+report whether a real model imported, initialized and produced landmarks. The
+results page **Model transparency** panel and PDF/JSON show the same provenance
+(`model_loaded`, `model_verified`, `simulated_data_used`, device, frame counts).
+
+**Reading keypoint colors (Keypoint Analysis tab).** Colours describe *tracking
+reliability*, not disease: **green** ≥ 0.80 reliable · **yellow** 0.60–0.79
+moderate · **orange** 0.40–0.59 low/occluded · **red** < 0.40 unreliable/missing
+· **dashed ring** = interpolated estimate. A separate "Movement flags" mode shows
+whether a *metric* derived from a joint needs review — a joint can be tracked
+well while its movement metric is flagged.
 
 ### 2) Frontend (Next.js)
 

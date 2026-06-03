@@ -3,10 +3,17 @@
     video -> quality -> detection -> pose -> smoothing -> events ->
     metrics -> clinical flags -> narrative/report
 
-Emits progress via a callback so the API can stream stage updates to the UI.
+HARD real/demo separation:
+  * demo presets use the simulated estimator (analysis_mode = demo_simulated);
+  * real analysis uses the model loader, which NEVER silently falls back to demo
+    — it raises ModelUnavailableError, surfaced here as a clear AnalysisError.
+
+Per-metric confidence is derived from the tracking quality of the keypoints each
+metric actually depends on (see keypoint_quality.py), not a generic score.
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Callable, Optional
 
@@ -15,10 +22,13 @@ import numpy as np
 from app.config import get_settings
 from app.pipeline.events import GaitEventDetector
 from app.pipeline.flags import ClinicalFlagService
+from app.pipeline.keypoint_quality import (
+    RELATED_METRICS,
+    KeypointQualityIndex,
+    compute_keypoint_stats,
+)
 from app.pipeline.metrics import GaitMetricsCalculator
 from app.pipeline.narrative import NarrativeGenerator
-from app.pipeline.pose import select_pose_estimator
-from app.pipeline.pose.base import LEFT_INDICES, RIGHT_INDICES, SKELETON_EDGES
 from app.pipeline.quality import QualityAssessmentService
 from app.pipeline.smoothing import TemporalSmoothingService
 from app.pipeline.tracking import PersonDetectionService
@@ -27,6 +37,9 @@ from app.schemas import (
     AnalysisMode,
     AnalysisStatus,
     GaitAnalysisResult,
+    KeypointSource,
+    Metric,
+    MetricStatus,
     ModelInfo,
     PatientCase,
     PoseFrame,
@@ -35,7 +48,7 @@ from app.schemas import (
     VideoMetadata,
 )
 
-PIPELINE_VERSION = "0.1.0"
+PIPELINE_VERSION = "0.2.0"
 
 STAGES = [
     ("decode", "Video decoded"),
@@ -49,6 +62,33 @@ STAGES = [
 
 ProgressCb = Callable[[str, float], None]
 
+# Which keypoints each metric depends on (used to derive confidence + provenance).
+METRIC_SOURCE_KEYPOINTS: dict[str, list[str]] = {
+    "cadence_steps_per_min": ["left_ankle", "right_ankle", "left_heel", "right_heel"],
+    "step_count": ["left_ankle", "right_ankle"],
+    "gait_cycles_detected": ["left_ankle", "right_ankle"],
+    "walking_speed_m_per_s": ["left_hip", "right_hip", "left_ankle", "right_ankle"],
+    "stride_length_m": ["left_hip", "right_hip", "left_ankle", "right_ankle"],
+    "left_step_time_sec": ["left_ankle", "right_ankle", "left_heel"],
+    "right_step_time_sec": ["left_ankle", "right_ankle", "right_heel"],
+    "left_stride_time_sec": ["left_ankle", "left_heel"],
+    "right_stride_time_sec": ["right_ankle", "right_heel"],
+    "knee_rom_left_deg": ["left_hip", "left_knee", "left_ankle"],
+    "knee_rom_right_deg": ["right_hip", "right_knee", "right_ankle"],
+    "hip_rom_left_deg": ["left_shoulder", "left_hip", "left_knee"],
+    "hip_rom_right_deg": ["right_shoulder", "right_hip", "right_knee"],
+    "trunk_sway_index": ["left_shoulder", "right_shoulder", "left_hip", "right_hip"],
+    "stride_time_variability": ["left_ankle", "right_ankle"],
+}
+
+# Foot-keypoint edges added to the overlay when extended keypoints are present.
+_FOOT_EDGES = {
+    "left": [("left_ankle", "left_heel"), ("left_heel", "left_foot_index"),
+             ("left_ankle", "left_foot_index")],
+    "right": [("right_ankle", "right_heel"), ("right_heel", "right_foot_index"),
+              ("right_ankle", "right_foot_index")],
+}
+
 
 class AnalysisError(Exception):
     def __init__(self, message: str, code: str = "analysis_failed"):
@@ -60,6 +100,15 @@ class AnalysisError(Exception):
 class AnalysisOutput:
     result: GaitAnalysisResult
     pose_track: PoseTrack
+
+
+def _backend_label(mode: AnalysisMode) -> str:
+    return {
+        AnalysisMode.real_mediapipe: "mediapipe",
+        AnalysisMode.real_mmpose: "mmpose",
+        AnalysisMode.demo_simulated: "demo",
+        AnalysisMode.failed: "none",
+    }.get(mode, "unknown")
 
 
 class GaitPipeline:
@@ -84,6 +133,7 @@ class GaitPipeline:
         progress: Optional[ProgressCb] = None,
     ) -> AnalysisOutput:
         settings = get_settings()
+        t0 = time.perf_counter()
 
         def emit(stage: str, frac: float):
             if progress:
@@ -105,14 +155,31 @@ class GaitPipeline:
             raise AnalysisError(str(e), code="video_invalid") from e
         emit("decode", 1 / len(STAGES))
 
-        # 2) Pose estimation (select backend; may fall back to simulated/demo).
-        estimator, mode = select_pose_estimator(settings.pose_backend, demo_preset)
-        seq = estimator.estimate_2d_pose(decoded.frames, decoded.fps)
+        # 2) Pose estimation — HARD real/demo separation (see module docstring).
+        if demo_preset:
+            from app.pipeline.pose.simulated import SimulatedPoseEstimator
+
+            estimator = SimulatedPoseEstimator.from_preset(demo_preset)
+            mode = AnalysisMode.demo_simulated
+        else:
+            from app.models.model_loader import ModelUnavailableError, get_model_loader
+
+            try:
+                estimator, mode = get_model_loader().get_real_estimator()
+            except ModelUnavailableError as e:
+                raise AnalysisError(str(e), code="model_unavailable") from e
+
+        try:
+            seq = estimator.estimate_2d_pose(decoded.frames, decoded.fps)
+        except AnalysisError:
+            raise
+        except Exception as e:
+            raise AnalysisError(f"Pose inference failed: {e}", code="inference_failed") from e
         if seq.num_frames == 0:
             raise AnalysisError("No frames available for pose estimation.", "no_person")
 
-        # 2a) For demo runs, render the simulated subject into REAL frames so
-        #     quality scoring is genuine and a playable clip can be produced.
+        # 2a) Demo runs: render the simulated subject into REAL frames so quality
+        #     scoring is genuine and a playable clip is produced.
         from app.pipeline.pose.simulated import SimulatedPoseEstimator
 
         if is_demo_canvas and isinstance(estimator, SimulatedPoseEstimator):
@@ -142,8 +209,12 @@ class GaitPipeline:
         smoothed = self.smooth_svc.smooth(seq)
         emit("smooth", 4 / len(STAGES))
 
-        # 4) Quality (uses raw frames + pose coverage).
+        # 4) Quality (raw frames + pose coverage).
         quality = self.quality_svc.assess(decoded, smoothed)
+
+        # 4b) Per-keypoint tracking-quality stats (real, from the keypoints).
+        keypoint_stats = compute_keypoint_stats(smoothed)
+        kp_index = KeypointQualityIndex.from_stats(keypoint_stats)
 
         # 5) Gait events.
         events = self.event_detector.detect(smoothed)
@@ -157,20 +228,56 @@ class GaitPipeline:
         )
         emit("metrics", 6 / len(STAGES))
 
+        # 6b) Derive each metric's confidence from its source keypoints' quality.
+        info = estimator.get_model_info()
+        is_simulated = mode == AnalysisMode.demo_simulated
+        event_consistency = _event_consistency(bundle)
+        _refine_metric_confidence(
+            bundle.metrics, kp_index, quality.overall_score,
+            calibration_status=bundle.calibration_status,
+            event_consistency=event_consistency,
+            model_name=info.name, mode=mode, limitations=bundle.limitations,
+        )
+        overall_conf = (
+            round(float(np.mean([m.confidence for m in bundle.metrics])), 3)
+            if bundle.metrics else bundle.overall_confidence
+        )
+
         # 7) Flags + narrative.
         flags = self.flag_svc.generate(bundle, quality)
         narrative = self.narrator.generate(bundle, quality, flags, test_type, mode)
 
-        info = estimator.get_model_info()
+        # Model provenance.
+        all_scores = smoothed.all_keypoints()[..., 2]
+        frame_mean = np.nanmean(all_scores, axis=1) if all_scores.size else np.asarray([])
+        valid_pose_frames = int(np.sum(frame_mean > 0.3))
+        failed_frames = max(0, smoothed.num_frames - valid_pose_frames)
+        lowest = sorted(keypoint_stats, key=lambda s: s.mean_confidence)[:3]
         model_info = ModelInfo(
             pose_model=info.name,
             pose_model_version=info.version,
+            pose_backend=_backend_label(mode),
             analysis_mode=mode,
             keypoint_format=info.keypoint_format,
+            keypoint_source=(
+                KeypointSource.simulated.value if is_simulated
+                else KeypointSource.real_video_inference.value
+            ),
             pipeline_version=PIPELINE_VERSION,
+            model_loaded=not is_simulated,
+            model_verified=(not is_simulated) and valid_pose_frames > 0,
+            device=str(getattr(estimator, "device", "cpu")),
             frame_count=smoothed.num_frames,
+            valid_pose_frames=valid_pose_frames,
+            failed_frames=failed_frames,
             fps=round(smoothed.fps, 2),
             mean_keypoint_confidence=round(smoothed.mean_confidence, 3),
+            lowest_confidence_keypoints=[s.name for s in lowest],
+            interpolation_used=bool(
+                smoothed.interpolated_mask is not None and np.any(smoothed.interpolated_mask)
+            ),
+            processing_time_sec=round(time.perf_counter() - t0, 3),
+            simulated_data_used=is_simulated,
             calibration_status=bundle.calibration_status,
             notes=info.notes,
         )
@@ -182,15 +289,19 @@ class GaitPipeline:
             status=AnalysisStatus.completed,
             test_type=test_type,
             analysis_mode=mode,
+            pose_backend=_backend_label(mode),
+            keypoint_source=model_info.keypoint_source,
+            simulated_data_used=is_simulated,
             quality=quality,
             metrics=bundle.metrics,
             asymmetry=bundle.asymmetry,
             events=events.events,
             joint_curves=bundle.joint_curves,
+            keypoint_stats=keypoint_stats,
             clinical_flags=flags,
             mobility_risk_support_score=bundle.risk_score,
             mobility_risk_band=bundle.risk_band,
-            overall_confidence=bundle.overall_confidence,
+            overall_confidence=overall_conf,
             limitations=bundle.limitations + (events.notes or []),
             report_summary=narrative["report_summary"],
             patient_summary=narrative["patient_summary"],
@@ -203,22 +314,96 @@ class GaitPipeline:
 
     @staticmethod
     def _build_pose_track(analysis_id: str, seq) -> PoseTrack:
+        names = seq.all_names()
+        kp = seq.all_keypoints()
+        name_to_idx = {n: i for i, n in enumerate(names)}
+        mask = seq.interpolated_mask
+
+        from app.pipeline.pose.base import SKELETON_EDGES
+
+        edges = [list(e) for e in SKELETON_EDGES]
+        for side in ("left", "right"):
+            for a, b in _FOOT_EDGES[side]:
+                if a in name_to_idx and b in name_to_idx:
+                    edges.append([name_to_idx[a], name_to_idx[b]])
+        left_idx = [i for i, n in enumerate(names) if n.startswith("left_")]
+        right_idx = [i for i, n in enumerate(names) if n.startswith("right_")]
+
         frames: list[PoseFrame] = []
-        kp = seq.keypoints
         for i in range(seq.num_frames):
             pts = [[round(float(x), 1), round(float(y), 1), round(float(s), 3)]
                    for x, y, s in kp[i]]
             mc = float(np.nanmean(kp[i, :, 2]))
+            interp = (
+                [j for j in range(kp.shape[1]) if mask is not None and mask.shape[1] > j and mask[i, j]]
+            )
             frames.append(PoseFrame(
                 frame_index=i, t=round(float(seq.timestamps[i]), 3),
-                keypoints=pts, mean_confidence=round(mc, 3),
+                keypoints=pts, mean_confidence=round(mc, 3), interp=interp,
             ))
         return PoseTrack(
             analysis_id=analysis_id, fps=round(seq.fps, 3), frame_count=seq.num_frames,
-            width=seq.width, height=seq.height, keypoint_names=list(seq.names),
-            skeleton_edges=SKELETON_EDGES, left_indices=LEFT_INDICES,
-            right_indices=RIGHT_INDICES, frames=frames,
+            width=seq.width, height=seq.height, keypoint_names=names,
+            skeleton_edges=edges, left_indices=left_idx, right_indices=right_idx,
+            frames=frames,
         )
+
+
+# --------------------------------------------------------------------------- #
+def _event_consistency(bundle) -> float:
+    cv = getattr(bundle, "stride_cv", None)
+    cycles = next((m.value for m in bundle.metrics if m.key == "gait_cycles_detected"), 0) or 0
+    cyc_factor = min(1.0, cycles / 4.0)
+    cv_factor = 1.0 if cv is None else max(0.3, 1.0 - min(cv, 0.3) / 0.3)
+    return float(max(0.3, min(1.0, 0.5 * cyc_factor + 0.5 * cv_factor)))
+
+
+def _refine_metric_confidence(
+    metrics: list[Metric],
+    kp_index: KeypointQualityIndex,
+    quality_score: float,
+    *,
+    calibration_status: str,
+    event_consistency: float,
+    model_name: str,
+    mode: AnalysisMode,
+    limitations: list[str],
+) -> None:
+    """Recompute each metric's confidence from the tracking quality of its source
+    keypoints, and attach provenance. Never inflates confidence for weak keypoints."""
+    for m in metrics:
+        sources = METRIC_SOURCE_KEYPOINTS.get(m.key, RELATED_METRICS_INVERSE.get(m.key, []))
+        m.source_keypoints = sources
+        m.source_model = model_name
+        m.analysis_mode = mode
+        m.limitations = list(limitations)
+        if not sources:
+            m.confidence_reason = "Structural metric; confidence reflects video quality."
+            continue
+        cal = 1.0
+        if m.key in ("walking_speed_m_per_s", "stride_length_m"):
+            cal = (1.0 if calibration_status == "distance-calibrated"
+                   else 0.7 if calibration_status == "height-calibrated" else 0.5)
+        conf, reason = kp_index.metric_confidence(
+            sources, quality_score=quality_score, calibration_factor=cal,
+            event_consistency=event_consistency,
+        )
+        if m.value is None:
+            m.confidence = 0.0
+            m.status = MetricStatus.limited
+        else:
+            m.confidence = conf
+            if conf < 0.45 and m.status != MetricStatus.limited:
+                m.status = MetricStatus.low_confidence
+        m.confidence_reason = reason
+
+
+# Allow keypoints in keypoint_quality.RELATED_METRICS to also drive sources if a
+# metric isn't in METRIC_SOURCE_KEYPOINTS (kept consistent with that module).
+RELATED_METRICS_INVERSE: dict[str, list[str]] = {}
+for _kp, _metrics in RELATED_METRICS.items():
+    for _mk in _metrics:
+        RELATED_METRICS_INVERSE.setdefault(_mk, []).append(_kp)
 
 
 def _video_exists(path: str) -> bool:

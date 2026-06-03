@@ -2,40 +2,44 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pause, Play } from "lucide-react";
-import type { GaitEvent, PoseTrack } from "@horalix/shared";
+import { confidenceColor, type GaitEvent, type PoseTrack } from "@horalix/shared";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+
+export type ColorMode = "default" | "tracking" | "movement" | "both" | "none";
 
 type Toggles = {
   skeleton: boolean;
   labels: boolean;
-  confidence: boolean;
   events: boolean;
 };
 
 const LEFT = "#f2a93b";
 const RIGHT = "#5aa0f7";
-const MID = "#9fb3c8";
-const GAIT_LABELS: Record<number, string> = {
-  11: "L hip", 12: "R hip", 13: "L knee", 14: "R knee", 15: "L ankle", 16: "R ankle",
+const GAIT_LABELS: Record<string, string> = {
+  left_hip: "L hip", right_hip: "R hip", left_knee: "L knee", right_knee: "R knee",
+  left_ankle: "L ankle", right_ankle: "R ankle", left_heel: "L heel", right_heel: "R heel",
+  left_foot_index: "L toe", right_foot_index: "R toe",
 };
-
-function heatColor(score: number): string {
-  // 0 -> red, 1 -> green
-  const h = Math.max(0, Math.min(1, score)) * 120;
-  return `hsl(${h}, 80%, 55%)`;
-}
 
 export function SkeletonCanvas({
   pose,
   events,
   videoUrl,
   isDemo,
+  colorMode = "default",
+  movementColors,
+  selectedKeypoint = null,
+  onSelectKeypoint,
 }: {
   pose: PoseTrack;
   events: GaitEvent[];
   videoUrl?: string | null;
   isDemo: boolean;
+  colorMode?: ColorMode;
+  movementColors?: Record<number, string>;
+  selectedKeypoint?: number | null;
+  onSelectKeypoint?: (index: number) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -48,7 +52,6 @@ export function SkeletonCanvas({
   const [toggles, setToggles] = useState<Toggles>({
     skeleton: true,
     labels: false,
-    confidence: false,
     events: true,
   });
 
@@ -86,6 +89,23 @@ export function SkeletonCanvas({
     [events],
   );
 
+  const fillFor = useCallback(
+    (j: number, score: number): string => {
+      switch (colorMode) {
+        case "tracking":
+        case "both":
+          return confidenceColor(score);
+        case "movement":
+          return movementColors?.[j] ?? "#64748b";
+        case "none":
+          return "#94a3b8";
+        default:
+          return leftSet.has(j) ? LEFT : RIGHT;
+      }
+    },
+    [colorMode, movementColors, leftSet],
+  );
+
   const draw = useCallback(
     (time: number) => {
       const canvas = canvasRef.current;
@@ -113,6 +133,7 @@ export function SkeletonCanvas({
       const frame = frameAt(time);
       if (!frame) return;
       const kp = frame.keypoints;
+      const interp = new Set(frame.interp ?? []);
 
       if (toggles.skeleton) {
         ctx.lineWidth = Math.max(2, W * 0.004);
@@ -121,7 +142,12 @@ export function SkeletonCanvas({
           const pa = kp[a];
           const pb = kp[b];
           if (!pa || !pb || pa[2] < 0.2 || pb[2] < 0.2) continue;
-          ctx.strokeStyle = leftSet.has(a) ? LEFT : RIGHT;
+          ctx.strokeStyle =
+            colorMode === "default" || colorMode === "none"
+              ? leftSet.has(a)
+                ? LEFT
+                : RIGHT
+              : "rgba(180,195,215,0.55)";
           ctx.globalAlpha = 0.9;
           ctx.beginPath();
           ctx.moveTo(pa[0], pa[1]);
@@ -132,20 +158,43 @@ export function SkeletonCanvas({
 
         for (let j = 0; j < kp.length; j++) {
           const [x, y, s] = kp[j];
-          if (s < 0.2) continue;
-          const r = Math.max(3, W * 0.005) + s * 3;
-          ctx.fillStyle = toggles.confidence
-            ? heatColor(s)
-            : leftSet.has(j)
-              ? LEFT
-              : RIGHT;
+          if (s < 0.1) continue;
+          const r = Math.max(3, W * 0.006) + s * 3;
+          ctx.fillStyle = fillFor(j, s);
           ctx.beginPath();
           ctx.arc(x, y, r, 0, Math.PI * 2);
           ctx.fill();
-          if (toggles.labels && GAIT_LABELS[j]) {
+
+          // "both" mode: movement ring around tracking-colored fill.
+          if (colorMode === "both" && movementColors?.[j]) {
+            ctx.strokeStyle = movementColors[j];
+            ctx.lineWidth = 2.5;
+            ctx.beginPath();
+            ctx.arc(x, y, r + 3, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+          // interpolated -> dashed ring (distinct from reliable points).
+          if (interp.has(j)) {
+            ctx.strokeStyle = "#cbd5e1";
+            ctx.lineWidth = 1.5;
+            ctx.setLineDash([3, 3]);
+            ctx.beginPath();
+            ctx.arc(x, y, r + 4, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+          }
+          // selected highlight.
+          if (selectedKeypoint === j) {
+            ctx.strokeStyle = "#ffffff";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(x, y, r + 7, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+          if (toggles.labels && GAIT_LABELS[pose.keypoint_names[j]]) {
             ctx.fillStyle = "rgba(255,255,255,0.85)";
             ctx.font = `${Math.round(W * 0.014)}px ui-sans-serif, sans-serif`;
-            ctx.fillText(GAIT_LABELS[j], x + 8, y - 6);
+            ctx.fillText(GAIT_LABELS[pose.keypoint_names[j]], x + 8, y - 6);
           }
         }
       }
@@ -162,10 +211,10 @@ export function SkeletonCanvas({
         }
       }
     },
-    [frameAt, leftSet, nearbyEvent, pose.skeleton_edges, toggles, videoUrl],
+    [colorMode, fillFor, frameAt, leftSet, movementColors, nearbyEvent, pose.keypoint_names,
+     pose.skeleton_edges, selectedKeypoint, toggles, videoUrl],
   );
 
-  // Animation / sync loop (reads time from a ref to avoid per-frame effect churn)
   useEffect(() => {
     function loop(ts: number) {
       const video = videoRef.current;
@@ -207,6 +256,29 @@ export function SkeletonCanvas({
     draw(value);
   }
 
+  function handleClick(e: React.MouseEvent<HTMLCanvasElement>) {
+    if (!onSelectKeypoint) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const sx = canvas.width / rect.width;
+    const sy = canvas.height / rect.height;
+    const mx = (e.clientX - rect.left) * sx;
+    const my = (e.clientY - rect.top) * sy;
+    const frame = frameAt(tRef.current);
+    let best = -1;
+    let bestD = (canvas.width * 0.04) ** 2;
+    frame.keypoints.forEach(([x, y, s], j) => {
+      if (s < 0.1) return;
+      const d = (x - mx) ** 2 + (y - my) ** 2;
+      if (d < bestD) {
+        bestD = d;
+        best = j;
+      }
+    });
+    if (best >= 0) onSelectKeypoint(best);
+  }
+
   const frame = frameAt(t);
 
   return (
@@ -221,9 +293,6 @@ export function SkeletonCanvas({
             playsInline
             loop
             autoPlay
-            onError={() => {
-              /* fall back silently to canvas-only playback */
-            }}
             style={{ aspectRatio: `${pose.width} / ${pose.height}` }}
           />
         ) : null}
@@ -231,16 +300,20 @@ export function SkeletonCanvas({
           ref={canvasRef}
           width={pose.width}
           height={pose.height}
-          className={cn("w-full", videoUrl ? "absolute inset-0" : "block")}
+          onClick={handleClick}
+          className={cn(
+            "w-full",
+            videoUrl ? "absolute inset-0" : "block",
+            onSelectKeypoint ? "cursor-pointer" : "",
+          )}
           style={{ aspectRatio: `${pose.width} / ${pose.height}` }}
         />
         <div className="pointer-events-none absolute left-3 top-3 rounded-md bg-black/55 px-2 py-1 text-[10px] font-medium text-white/90">
-          {isDemo ? "DEMO · simulated keypoints" : "Skeleton overlay"} · conf{" "}
+          {isDemo ? "DEMO · simulated keypoints" : "Real AI keypoints"} · conf{" "}
           {(frame?.mean_confidence ?? 0).toFixed(2)}
         </div>
       </div>
 
-      {/* Transport */}
       <div className="flex items-center gap-3">
         <Button size="icon" variant="secondary" onClick={togglePlay} aria-label="Play/pause">
           {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
@@ -272,14 +345,12 @@ export function SkeletonCanvas({
         </span>
       </div>
 
-      {/* Toggles */}
       <div className="flex flex-wrap gap-2">
         {(
           [
             ["skeleton", "Skeleton"],
             ["events", "Gait events"],
             ["labels", "Joint labels"],
-            ["confidence", "Confidence heatmap"],
           ] as [keyof Toggles, string][]
         ).map(([key, label]) => (
           <button
