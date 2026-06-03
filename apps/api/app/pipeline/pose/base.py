@@ -60,16 +60,32 @@ class PoseSequence:
     ``(x, y, score)`` in pixel coordinates (origin top-left, y increasing down).
     """
 
-    keypoints: np.ndarray  # (T, 17, 3)
+    keypoints: np.ndarray  # (T, 17, 3) core COCO-17, last axis (x, y, score)
     fps: float
     width: int
     height: int
     timestamps: np.ndarray  # (T,)
     names: list[str] = field(default_factory=lambda: list(COCO17_NAMES))
+    # Optional extended keypoints (e.g. heel / foot_index) preserved for the
+    # keypoint-analysis UI and improved foot-event detection. (T, M, 3).
+    extra_keypoints: Optional[np.ndarray] = None
+    extra_names: list[str] = field(default_factory=list)
+    # (T, K_total) boolean mask of keypoints filled by interpolation (core+extra
+    # concatenated order). None until smoothing populates it.
+    interpolated_mask: Optional[np.ndarray] = None
 
     @property
     def num_frames(self) -> int:
         return int(self.keypoints.shape[0])
+
+    def all_keypoints(self) -> np.ndarray:
+        """Core + extra keypoints concatenated, shape (T, K_total, 3)."""
+        if self.extra_keypoints is None or self.extra_keypoints.size == 0:
+            return self.keypoints
+        return np.concatenate([self.keypoints, self.extra_keypoints], axis=1)
+
+    def all_names(self) -> list[str]:
+        return list(self.names) + list(self.extra_names)
 
     @property
     def mean_confidence(self) -> float:
@@ -88,6 +104,9 @@ class PoseSequence:
             height=self.height,
             timestamps=self.timestamps.copy(),
             names=list(self.names),
+            extra_keypoints=None if self.extra_keypoints is None else self.extra_keypoints.copy(),
+            extra_names=list(self.extra_names),
+            interpolated_mask=None if self.interpolated_mask is None else self.interpolated_mask.copy(),
         )
 
 

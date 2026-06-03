@@ -56,19 +56,26 @@ class TemporalSmoothingService:
 
     def smooth(self, seq: PoseSequence) -> PoseSequence:
         out = seq.copy()
-        kp = out.keypoints
-        T, K, _ = kp.shape
+        # Smooth core + extra keypoints together so the interpolation mask covers
+        # all keypoints (in concatenated order) for the keypoint-analysis UI.
+        n_core = out.keypoints.shape[1]
+        has_extra = out.extra_keypoints is not None and out.extra_keypoints.size > 0
+        kp_all = out.all_keypoints().copy()
+        T, K, _ = kp_all.shape
+        interp_mask = np.zeros((T, K), dtype=bool)
+
         for k in range(K):
-            x = kp[:, k, 0].copy()
-            y = kp[:, k, 1].copy()
-            c = kp[:, k, 2].copy()
+            x = kp_all[:, k, 0].copy()
+            y = kp_all[:, k, 1].copy()
+            c = kp_all[:, k, 2]
 
-            mask = c >= self.min_confidence
-            x[~mask] = np.nan
-            y[~mask] = np.nan
+            valid = c >= self.min_confidence
+            x[~valid] = np.nan
+            y[~valid] = np.nan
 
-            x = self._interp_short_gaps(x)
-            y = self._interp_short_gaps(y)
+            x, fx_mask = self._interp_short_gaps(x)
+            y, _ = self._interp_short_gaps(y)
+            interp_mask[:, k] = fx_mask
 
             fx = OneEuroFilter(seq.fps, self.min_cutoff, self.beta)
             fy = OneEuroFilter(seq.fps, self.min_cutoff, self.beta)
@@ -78,19 +85,25 @@ class TemporalSmoothingService:
                 if np.isfinite(y[i]):
                     y[i] = fy.filter(y[i])
 
-            kp[:, k, 0] = x
-            kp[:, k, 1] = y
+            kp_all[:, k, 0] = x
+            kp_all[:, k, 1] = y
+
+        out.keypoints = kp_all[:, :n_core, :]
+        if has_extra:
+            out.extra_keypoints = kp_all[:, n_core:, :]
+        out.interpolated_mask = interp_mask
         return out
 
-    def _interp_short_gaps(self, arr: np.ndarray) -> np.ndarray:
+    def _interp_short_gaps(self, arr: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         a = arr.copy()
         n = len(a)
+        filled = np.zeros(n, dtype=bool)
         isnan = ~np.isfinite(a)
         if not isnan.any():
-            return a
+            return a, filled
         valid_idx = np.where(~isnan)[0]
         if valid_idx.size < 2:
-            return a
+            return a, filled
         i = 0
         while i < n:
             if isnan[i]:
@@ -101,7 +114,8 @@ class TemporalSmoothingService:
                 gap_len = end - start
                 if gap_len <= self.max_gap_frames and start > 0 and end < n:
                     a[start:end] = np.linspace(a[start - 1], a[end], gap_len + 2)[1:-1]
+                    filled[start:end] = True
                 # else leave as NaN (long dropout -> reported missing)
             else:
                 i += 1
-        return a
+        return a, filled

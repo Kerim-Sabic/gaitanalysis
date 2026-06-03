@@ -49,8 +49,15 @@ class AnalysisStatus(str, Enum):
 
 
 class AnalysisMode(str, Enum):
-    clinical = "clinical"  # real pose model produced the keypoints
-    demo = "demo"  # simulated / fallback keypoints — NOT clinical grade
+    real_mediapipe = "real_mediapipe"  # real pose model ran inference on real frames
+    demo_simulated = "demo_simulated"  # simulated keypoints — NOT real patient analysis
+    failed = "failed"  # model/inference failed; no metrics produced
+
+
+class KeypointSource(str, Enum):
+    real_video_inference = "real_video_inference"
+    simulated = "simulated"
+    none = "none"
 
 
 class FlagSeverity(str, Enum):
@@ -142,6 +149,12 @@ class Metric(BaseModel):
     status: MetricStatus = MetricStatus.limited
     normal_reference: Optional[str] = None
     interpretation: str = ""
+    # Provenance — confidence is derived from these, not generic.
+    source_keypoints: list[str] = Field(default_factory=list)
+    source_model: str = ""
+    analysis_mode: Optional[AnalysisMode] = None
+    limitations: list[str] = Field(default_factory=list)
+    confidence_reason: str = ""
 
 
 class Asymmetry(BaseModel):
@@ -187,16 +200,41 @@ class ClinicalFlag(BaseModel):
     supporting_metrics: list[str] = Field(default_factory=list)
 
 
+class KeypointStat(BaseModel):
+    name: str
+    side: str  # left | right | midline
+    index: int
+    mean_confidence: float = 0.0
+    valid_frame_percent: float = 0.0
+    missing_frame_percent: float = 0.0
+    interpolated_percent: float = 0.0
+    quality_band: str = "unreliable"  # good | moderate | limited | unreliable
+    related_metrics: list[str] = Field(default_factory=list)
+    note: str = ""
+
+
 class ModelInfo(BaseModel):
     pose_model: str
     pose_model_version: str
+    pose_backend: str = "unknown"
     analysis_mode: AnalysisMode
     keypoint_format: str
+    keypoint_source: str = KeypointSource.none.value
     pipeline_version: str
+    model_loaded: bool = False
+    model_verified: bool = False
+    device: str = "cpu"
     frame_count: int = 0
+    valid_pose_frames: int = 0
+    failed_frames: int = 0
     fps: float = 0.0
     mean_keypoint_confidence: float = 0.0
+    lowest_confidence_keypoints: list[str] = Field(default_factory=list)
+    interpolation_used: bool = False
+    processing_time_sec: float = 0.0
+    simulated_data_used: bool = False
     calibration_status: str = "uncalibrated"
+    clinical_validation_status: str = "Not yet validated — clinician review required"
     notes: list[str] = Field(default_factory=list)
 
 
@@ -227,12 +265,16 @@ class GaitAnalysisResult(BaseModel):
     status: AnalysisStatus
     test_type: TestType
     analysis_mode: AnalysisMode
+    pose_backend: str = "unknown"
+    keypoint_source: str = KeypointSource.none.value
+    simulated_data_used: bool = False
 
     quality: QualityResult
     metrics: list[Metric] = Field(default_factory=list)
     asymmetry: list[Asymmetry] = Field(default_factory=list)
     events: list[GaitEvent] = Field(default_factory=list)
     joint_curves: list[JointCurve] = Field(default_factory=list)
+    keypoint_stats: list[KeypointStat] = Field(default_factory=list)
     clinical_flags: list[ClinicalFlag] = Field(default_factory=list)
 
     mobility_risk_support_score: float = Field(0.0, ge=0, le=100)
@@ -260,6 +302,7 @@ class PoseFrame(BaseModel):
     t: float
     keypoints: list[list[float]]  # [[x, y, score], ...] in pixel coordinates
     mean_confidence: float = 0.0
+    interp: list[int] = Field(default_factory=list)  # interpolated keypoint indices
 
 
 class PoseTrack(BaseModel):

@@ -25,10 +25,12 @@ class Settings(BaseSettings):
     data_dir: Path = REPO_ROOT / "data"
     database_url: str = f"sqlite:///{(REPO_ROOT / 'data' / 'horalix.db').as_posix()}"
 
-    # Pose backend preference. One of: "auto", "mediapipe", "mmpose", "simulated".
-    # "auto" = use the best installed real model, else fall back to the simulated
-    # estimator (clearly labelled as non-clinical demo output).
-    pose_backend: str = "auto"
+    # Pose backend preference (env: HORALIX_POSE_BACKEND).
+    # Supported: "mediapipe" (default real backend), "demo" (simulated only),
+    # "mmpose_future" (MMPose when wired), and "auto" (best installed real model).
+    # Real analysis NEVER silently falls back to demo — if the configured real
+    # backend is unavailable it fails clearly; demo can be selected explicitly.
+    pose_backend: str = "mediapipe"
 
     # Demo presets force the simulated estimator with a known gait profile so the
     # product is demonstrable before heavy models are deployed.
