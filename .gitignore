@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+apps/api/.venv/
+*.egg-info/
+
+# Node
+node_modules/
+.next/
+out/
+.turbo/
+
+# Data & artefacts (do not commit patient media) — keep dir structure only
+data/uploads/*
+data/processed/*
+data/reports/*
+data/*.db
+!**/.gitkeep
+
+# Env
+.env
+.env.local
+*.local
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

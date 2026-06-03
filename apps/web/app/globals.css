@@ -1,0 +1,84 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Light clinical theme */
+  --bg: 210 40% 98%;
+  --surface: 0 0% 100%;
+  --surface-2: 210 40% 96%;
+  --border: 214 32% 88%;
+  --muted: 215 20% 92%;
+  --fg: 222 47% 11%;
+  --fg-subtle: 215 16% 42%;
+  --primary: 221 70% 52%;
+  --primary-fg: 0 0% 100%;
+  --accent: 199 80% 46%;
+  --good: 152 56% 38%;
+  --warn: 38 92% 46%;
+  --danger: 0 72% 51%;
+  --left: 38 92% 50%;
+  --right: 217 80% 56%;
+  --font-sans: "Inter", system-ui, sans-serif;
+}
+
+.dark {
+  /* Dark navy clinical theme (default) */
+  --bg: 222 47% 7%;
+  --surface: 222 40% 11%;
+  --surface-2: 222 38% 14%;
+  --border: 220 28% 20%;
+  --muted: 220 26% 18%;
+  --fg: 210 40% 96%;
+  --fg-subtle: 215 20% 65%;
+  --primary: 217 88% 62%;
+  --primary-fg: 222 47% 8%;
+  --accent: 190 85% 55%;
+  --good: 152 56% 50%;
+  --warn: 38 92% 58%;
+  --danger: 0 72% 62%;
+  --left: 38 92% 60%;
+  --right: 210 90% 64%;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  background-color: hsl(var(--bg));
+  color: hsl(var(--fg));
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Ambient background gradient — restrained, no cheap rainbow gradients. */
+.app-bg {
+  background-image:
+    radial-gradient(60rem 60rem at 110% -10%, hsl(var(--primary) / 0.10), transparent 55%),
+    radial-gradient(50rem 50rem at -10% 0%, hsl(var(--accent) / 0.07), transparent 50%);
+}
+
+.glass {
+  background: hsl(var(--surface) / 0.7);
+  backdrop-filter: blur(12px);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@layer utilities {
+  .animate-fade-up {
+    animation: fade-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+}
+
+/* Thin, calm scrollbars */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 9999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
