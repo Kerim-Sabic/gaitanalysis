@@ -1,0 +1,26 @@
+# Horalix Gait AI — REAL inference dependencies (MediaPipe Tasks + Ultralytics).
+# Use this instead of requirements.txt to enable real pose backends.
+#   python -m pip install -r requirements-real.txt
+# Tested with Python 3.11/3.12, 64-bit. Install from official PyPI if a mirror
+# serves a hollow MediaPipe stub (see README "Real AI Vision Setup").
+
+# --- Core API ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pydantic-settings==2.7.0
+python-multipart==0.0.20
+
+# --- Scientific / CV core ---
+numpy>=1.26,<2.3
+scipy>=1.11
+opencv-python-headless==4.11.0.86
+
+# --- Reporting ---
+reportlab==4.2.5
+
+# --- Real pose backends ---
+# Primary: MediaPipe Tasks PoseLandmarker (provides heel/foot_index).
+mediapipe>=0.10.14
+# Real fallback: Ultralytics YOLO-Pose (COCO-17 only, no heel/foot_index).
+ultralytics>=8.2.0

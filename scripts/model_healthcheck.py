@@ -2,9 +2,11 @@
 
     python scripts/model_healthcheck.py
 
-Verifies: backend resolves -> model initializes -> inference runs ->
-PoseSequence valid -> metrics pipeline accepts output -> no simulated data in
-real mode. Exits non-zero unless ALL checks pass (no fake "healthy" states).
+Verifies: backend resolves -> model file -> init -> inference -> PoseSequence ->
+smoothing -> events -> metrics -> no simulated data in real mode. If a real
+walking video exists it additionally requires valid pose frames > 0.
+
+Exit codes: 0 = passed or execution_only; 1 = failed.
 """
 from __future__ import annotations
 
@@ -18,14 +20,24 @@ def main() -> int:
     print("=== Horalix model healthcheck ===")
     print(f"Backend       : {hc.backend}")
     print(f"Analysis mode : {hc.analysis_mode or '-'}")
+    print(f"Sample used   : {hc.sample_used}")
+    print(f"Valid frames  : {hc.valid_pose_frames}")
     print(f"Simulated data: {'yes' if hc.simulated_data_used else 'no'}")
     print("Checks:")
     for name, ok in hc.checks.items():
         print(f"  [{'PASS' if ok else 'FAIL'}] {name}")
     if hc.error:
         print(f"Error: {hc.error}")
-    print(f"RESULT: {'PASSED' if hc.passed else 'FAILED'}")
-    return 0 if hc.passed else 1
+    for d in hc.details:
+        print(f"Note: {d}")
+
+    label = {
+        "passed": "FULL REAL VERIFIED",
+        "execution_only": "MODEL EXECUTION VERIFIED ONLY",
+        "failed": "FAILED",
+    }.get(hc.status, hc.status.upper())
+    print(f"STATUS: {label}")
+    return 0 if hc.status in ("passed", "execution_only") else 1
 
 
 if __name__ == "__main__":

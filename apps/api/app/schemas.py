@@ -49,7 +49,9 @@ class AnalysisStatus(str, Enum):
 
 
 class AnalysisMode(str, Enum):
-    real_mediapipe = "real_mediapipe"  # real MediaPipe inference on real frames
+    real_mediapipe_tasks = "real_mediapipe_tasks"  # MediaPipe Tasks PoseLandmarker
+    real_ultralytics_pose = "real_ultralytics_pose"  # Ultralytics YOLO-Pose (COCO-17)
+    real_mediapipe = "real_mediapipe"  # legacy/general real MediaPipe label
     real_mmpose = "real_mmpose"  # real MMPose/RTMPose inference on real frames
     demo_simulated = "demo_simulated"  # simulated keypoints — NOT real patient analysis
     failed = "failed"  # model/inference failed; no metrics produced
@@ -57,6 +59,15 @@ class AnalysisMode(str, Enum):
     # so older code paths using `.demo` / `.clinical` keep working.
     demo = "demo_simulated"
     clinical = "real_mediapipe"
+
+    @property
+    def is_real(self) -> bool:
+        return self in (
+            AnalysisMode.real_mediapipe_tasks,
+            AnalysisMode.real_ultralytics_pose,
+            AnalysisMode.real_mediapipe,
+            AnalysisMode.real_mmpose,
+        )
 
     @classmethod
     def _missing_(cls, value):

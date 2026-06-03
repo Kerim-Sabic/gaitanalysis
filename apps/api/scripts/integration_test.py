@@ -67,12 +67,24 @@ def main():
     pdf = get(f"/analysis/{aid}/report.pdf", raw=True)
     print("  pdf bytes:", len(pdf), "is_pdf:", pdf[:4] == b"%PDF")
 
-    # Fail-fast: start REAL analysis (no demo_preset) on the demo's video — should
-    # 422 with model_unavailable (no silent fallback) since real model is absent.
+    # Real-analysis start behaviour depends on whether a real backend is available:
+    #  - real available  -> 200 (job starts); on a synthetic demo clip the real
+    #    model finds no person and the job fails with code no_person (honest).
+    #  - real unavailable -> 422 model_unavailable (no silent fallback).
     video_id = result["video_id"]
     code, body = post("/analysis/start", {"video_id": video_id})
-    print("real start (expect 422):", code, "| code:",
-          body.get("detail", {}).get("code") if isinstance(body.get("detail"), dict) else body.get("detail"))
+    detail = body.get("detail")
+    if code == 200:
+        raid = body["analysis_id"]
+        for _ in range(40):
+            rst = get(f"/analysis/{raid}/status")
+            if rst["status"] in ("completed", "failed"):
+                break
+            time.sleep(0.4)
+        print("real start: 200 ->", rst["status"], "| error:", (rst.get("error") or "")[:60])
+    else:
+        code_str = detail.get("code") if isinstance(detail, dict) else detail
+        print("real start:", code, "| code:", code_str)
 
     print("\nINTEGRATION OK")
 

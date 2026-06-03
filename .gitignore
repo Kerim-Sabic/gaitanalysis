@@ -2,8 +2,26 @@
 __pycache__/
 *.pyc
 .venv/
+.venv-real/
 apps/api/.venv/
+apps/api/.venv-real/
 *.egg-info/
+
+# Model weights — NEVER commit (large; license-bound). Keep READMEs/.gitkeep only.
+models/**/*.task
+models/**/*.pt
+models/**/*.pth
+models/**/*.pth.tar
+models/**/*.ckpt
+models/**/*.safetensors
+models/**/*.onnx
+models/**/*.bin
+models/**/*.pkl
+
+# Sample / patient videos — do not commit
+data/sample_videos/*.mp4
+data/sample_videos/*.mov
+data/processed/model_tests/
 
 # Node
 node_modules/

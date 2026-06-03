@@ -1,18 +1,15 @@
-"""Pose backend selection.
+"""Pose backend selection (safe wrapper).
 
-``select_pose_estimator`` resolves the configured preference to a concrete
-adapter, transparently falling back to the simulated estimator when no real
-model is installed. The returned ``analysis_mode`` tells the rest of the system
-whether output is clinical-candidate or demo.
+This delegates to the model loader so there is a SINGLE real-selection path. It
+never returns a simulated estimator for a real-backend request — demo is only
+returned when a demo preset is explicitly provided. Real selection raises
+``ModelUnavailableError`` when no real backend is available (no silent fallback).
 """
 from __future__ import annotations
 
 from app.schemas import AnalysisMode
 
 from .base import BasePoseEstimator
-from .mediapipe_adapter import MediaPipePoseEstimator
-from .mmpose_adapter import MMPosePoseEstimator
-from .simulated import SimulatedPoseEstimator
 
 
 def select_pose_estimator(
@@ -21,28 +18,15 @@ def select_pose_estimator(
 ) -> tuple[BasePoseEstimator, AnalysisMode]:
     """Return ``(estimator, analysis_mode)``.
 
-    A demo preset always forces the simulated estimator (demo mode). Otherwise we
-    honour the preference, falling back through MMPose -> MediaPipe -> simulated.
+    Demo preset -> simulated estimator (demo_simulated). Otherwise delegate to the
+    model loader's real selection, which raises ModelUnavailableError if no real
+    backend is available. There is NO silent fallback to simulated for real runs.
     """
     if demo_preset:
-        return SimulatedPoseEstimator.from_preset(demo_preset), AnalysisMode.demo
+        from .simulated import SimulatedPoseEstimator
 
-    if backend == "simulated":
-        return SimulatedPoseEstimator(), AnalysisMode.demo
+        return SimulatedPoseEstimator.from_preset(demo_preset), AnalysisMode.demo_simulated
 
-    if backend == "mmpose":
-        if MMPosePoseEstimator.is_available():
-            return MMPosePoseEstimator(), AnalysisMode.clinical
-        return SimulatedPoseEstimator(), AnalysisMode.demo
+    from app.models.model_loader import get_model_loader
 
-    if backend == "mediapipe":
-        if MediaPipePoseEstimator.is_available():
-            return MediaPipePoseEstimator(), AnalysisMode.clinical
-        return SimulatedPoseEstimator(), AnalysisMode.demo
-
-    # auto: best installed real model, else simulated fallback.
-    if MMPosePoseEstimator.is_available():
-        return MMPosePoseEstimator(), AnalysisMode.clinical
-    if MediaPipePoseEstimator.is_available():
-        return MediaPipePoseEstimator(), AnalysisMode.clinical
-    return SimulatedPoseEstimator(), AnalysisMode.demo
+    return get_model_loader().get_real_estimator()

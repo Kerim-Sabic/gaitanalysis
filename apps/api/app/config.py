@@ -26,11 +26,12 @@ class Settings(BaseSettings):
     database_url: str = f"sqlite:///{(REPO_ROOT / 'data' / 'horalix.db').as_posix()}"
 
     # Pose backend preference (env: HORALIX_POSE_BACKEND).
-    # Supported: "mediapipe" (default real backend), "demo" (simulated only),
-    # "mmpose_future" (MMPose when wired), and "auto" (best installed real model).
+    # Supported: "mediapipe_tasks" (default; MediaPipe Tasks PoseLandmarker, has
+    # heel/foot_index), "ultralytics_pose" (real fallback, COCO-17 only),
+    # "demo" (simulated only), "auto" (best available real backend).
     # Real analysis NEVER silently falls back to demo — if the configured real
     # backend is unavailable it fails clearly; demo can be selected explicitly.
-    pose_backend: str = "mediapipe"
+    pose_backend: str = "mediapipe_tasks"
 
     # Demo presets force the simulated estimator with a known gait profile so the
     # product is demonstrable before heavy models are deployed.

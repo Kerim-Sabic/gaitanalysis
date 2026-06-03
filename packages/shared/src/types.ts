@@ -18,6 +18,8 @@ export type CameraView = "sagittal" | "coronal" | "unknown";
 export type AnalysisStatus = "queued" | "running" | "completed" | "failed";
 
 export type AnalysisMode =
+  | "real_mediapipe_tasks"
+  | "real_ultralytics_pose"
   | "real_mediapipe"
   | "real_mmpose"
   | "demo_simulated"

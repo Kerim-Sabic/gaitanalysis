@@ -104,7 +104,9 @@ class AnalysisOutput:
 
 def _backend_label(mode: AnalysisMode) -> str:
     return {
-        AnalysisMode.real_mediapipe: "mediapipe",
+        AnalysisMode.real_mediapipe_tasks: "mediapipe_tasks",
+        AnalysisMode.real_ultralytics_pose: "ultralytics_pose",
+        AnalysisMode.real_mediapipe: "mediapipe_tasks",
         AnalysisMode.real_mmpose: "mmpose",
         AnalysisMode.demo_simulated: "demo",
         AnalysisMode.failed: "none",

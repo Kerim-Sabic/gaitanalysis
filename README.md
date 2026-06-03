@@ -79,34 +79,60 @@ python scripts/smoke_test.py            # runs all four demo presets
 python apps/api/scripts/integration_test.py  # end-to-end against a running server
 ```
 
-### Real AI model setup (MediaPipe)
+### Real AI Vision Setup
 
-The default backend is **MediaPipe Pose** — real, on-device 2D pose. Set it up:
+The default real backend is **MediaPipe Tasks PoseLandmarker** (`mediapipe_tasks`),
+which loads a local `.task` model and provides heel/foot_index landmarks. A real
+fallback **`ultralytics_pose`** (YOLOv8-Pose, COCO-17, no feet) is also supported.
 
-```bash
-cd apps/api && source .venv/bin/activate   # (Windows: .venv\Scripts\activate)
-pip install mediapipe                      # real wheel; Python 3.10–3.12, 64-bit
+**Windows (PowerShell):**
 
-python ../../scripts/download_models.py        # checks env + prepares dirs
-python ../../scripts/verify_models.py          # imports + initializes + runs inference
-python ../../scripts/test_pose_on_sample_video.py  # runs on data/sample_videos/walk_test.mp4
-python ../../scripts/model_healthcheck.py      # full real-analysis chain check
+```powershell
+cd apps/api
+py -3.11 -m venv .venv-real
+.venv-real\Scripts\activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements-real.txt
+
+python ../../scripts/model_inventory.py            # weights/runtimes/backends
+python ../../scripts/verify_models.py              # init + real inference
+python ../../scripts/model_healthcheck.py          # full real-analysis chain
+python ../../scripts/test_pose_on_sample_video.py  # needs data/sample_videos/walk_test.mp4
 ```
 
-Run the backend with a chosen backend (default is already `mediapipe`):
+Run the backend (default backend is already `mediapipe_tasks`):
 
-```bash
-HORALIX_POSE_BACKEND=mediapipe uvicorn app.main:app --port 8000   # real analysis
-HORALIX_POSE_BACKEND=demo      uvicorn app.main:app --port 8000   # demo only
+```powershell
+$env:HORALIX_POSE_BACKEND="mediapipe_tasks"   # or "ultralytics_pose" / "demo"
+uvicorn app.main:app --port 8000
 ```
 
-**Real vs Demo (hard separation).** Uploaded videos run **real** MediaPipe
-inference (`analysis_mode = real_mediapipe`, `simulated_data_used = false`). If
-the real model is not installed, real analysis **fails clearly** with
-*"Real pose model is unavailable. Run model setup or switch to Demo Mode."* — it
-never silently falls back. Demo Mode (`analysis_mode = demo_simulated`) uses
-simulated keypoints and is clearly labelled "not real patient analysis"; the gait
-math still measures the (synthetic) motion.
+The MediaPipe `.task` model is resolved from `HORALIX_MEDIAPIPE_MODEL_PATH`, then
+`models/pose/mediapipe/pose_landmarker_full.task`, then
+`apps/api/models/mediapipe/pose_landmarker_full.task`.
+
+**If a package mirror serves a hollow MediaPipe stub** (imports but lacks the
+inference runtime), reinstall from official PyPI, or use Docker:
+
+```powershell
+python -m pip uninstall -y mediapipe
+python -m pip install --index-url https://pypi.org/simple mediapipe
+# or, fully isolated:
+docker compose --profile real up --build api-real
+```
+
+**Real vs Demo (hard separation).** Uploaded videos run **real** inference
+(`analysis_mode = real_mediapipe_tasks` or `real_ultralytics_pose`,
+`simulated_data_used = false`). If the configured real backend is unavailable,
+real analysis **fails clearly** with *"Real pose model is unavailable. Run model
+setup or switch to Demo Mode."* — it never silently falls back. Demo Mode
+(`analysis_mode = demo_simulated`) uses simulated keypoints, is clearly labelled
+"not real patient analysis", and is never auto-selected for uploads.
+
+**FULL REAL VERIFIED requires a real walking video** at
+`data/sample_videos/walk_test.mp4` (see that folder's README). Without it, the
+scripts report **MODEL EXECUTION VERIFIED ONLY** (model loads + runs inference,
+but landmarks need a real human).
 
 **Verify it's really running:** `GET /models/status` and `GET /models/verify`
 report whether a real model imported, initialized and produced landmarks. The
