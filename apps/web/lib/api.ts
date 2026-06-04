@@ -31,7 +31,14 @@ export class ApiError extends Error {
   }
 }
 
-export function getApiBaseUrl(): string | null {
+// Same-origin proxy base used when NEXT_PUBLIC_API_URL is not set. The Next
+// rewrite in next.config.mjs maps "/api/*" -> the backend, so local `npm run dev`
+// and self-hosting work with ZERO config. On Netlify the env var is set and the
+// absolute URL is used directly.
+const PROXY_BASE = "/api";
+
+/** Validated absolute backend URL from the env, or null if unset/invalid. */
+function envApiBaseUrl(): string | null {
   const value = process.env.NEXT_PUBLIC_API_URL?.trim().replace(/\/+$/, "");
   if (!value) return null;
   try {
@@ -42,24 +49,39 @@ export function getApiBaseUrl(): string | null {
   }
 }
 
+/** The base every request is built on. Never null: falls back to the proxy. */
+export function getApiBaseUrl(): string {
+  return envApiBaseUrl() ?? PROXY_BASE;
+}
+
+/**
+ * "Configured" = an explicit backend URL is set, OR we are on localhost where the
+ * dev proxy reaches the backend. This keeps local dev working with no env while
+ * still showing a helpful banner on a deployed host that forgot NEXT_PUBLIC_API_URL.
+ */
 export function isApiConfigured(): boolean {
-  return getApiBaseUrl() !== null;
+  if (envApiBaseUrl() !== null) return true;
+  if (typeof window !== "undefined") {
+    const h = window.location.hostname;
+    return h === "localhost" || h === "127.0.0.1" || h === "";
+  }
+  return false;
 }
 
 export function getApiHostname(): string | null {
-  const base = getApiBaseUrl();
-  return base ? new URL(base).hostname : null;
+  const env = envApiBaseUrl();
+  if (env) {
+    try {
+      return new URL(env).hostname;
+    } catch {
+      return null;
+    }
+  }
+  return typeof window !== "undefined" ? window.location.hostname : null;
 }
 
 function getApiUrl(path: string): string {
   const base = getApiBaseUrl();
-  if (!base) {
-    throw new ApiError(
-      "API not configured. Set NEXT_PUBLIC_API_URL to the public FastAPI backend URL.",
-      0,
-      "api_not_configured",
-    );
-  }
   return `${base}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
