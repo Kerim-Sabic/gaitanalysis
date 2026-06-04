@@ -1,0 +1,2 @@
+# Official SAM2 source package; keep separate from the local Windows MVP env.
+git+https://github.com/facebookresearch/sam2.git

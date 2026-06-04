@@ -1,26 +1,32 @@
-"""Real on-device 2D pose via MediaPipe (the first real working backend).
+"""Real on-device 2D pose via the MediaPipe **Tasks** PoseLandmarker.
 
-MediaPipe Pose (BlazePose) returns 33 landmarks. We remap to the canonical
-COCO-17 layout (so the gait math is unchanged) AND additionally preserve the
-foot landmarks (heel, foot_index) as *extended* keypoints — these materially
-improve heel-strike / toe-off timing.
+This is the MVP real backend. It uses the modern Tasks API (NOT the legacy
+``mediapipe.solutions.pose``, which is absent from current MediaPipe builds) and
+loads a local ``.task`` model file.
 
-ROBUST AVAILABILITY
--------------------
-``is_available()`` does **not** merely check ``import mediapipe`` — a hollow
-build can import yet lack the inference engine. It confirms that
-``mediapipe.solutions.pose.Pose`` is importable AND a real native binding is
-present. This is what prevents fake "model loaded" states.
+PoseLandmarker returns 33 BlazePose landmarks; we map to the canonical COCO-17
+core AND preserve the foot landmarks (heel, foot_index) as extended keypoints —
+these materially improve heel-strike / toe-off timing.
 
-Install on a normal machine with::
+Model resolution order:
+  1. explicit constructor path
+  2. ``HORALIX_MEDIAPIPE_<VARIANT>_MODEL_PATH``
+  3. ``HORALIX_MEDIAPIPE_MODEL_PATH`` (Full compatibility override)
+  4. ``<repo>/models/pose/mediapipe/pose_landmarker_<variant>.task``
 
-    pip install mediapipe
+No landmarks are ever synthesized: frames without a detected pose are recorded
+with zero confidence so downstream confidence/quality honestly degrade.
 """
 from __future__ import annotations
 
 import importlib
+import os
+from pathlib import Path
+from typing import Optional
 
 import numpy as np
+
+from app.config import REPO_ROOT
 
 from .base import COCO17_NAMES, KEYPOINT, BasePoseEstimator, PoseModelInfo, PoseSequence
 
@@ -36,24 +42,47 @@ _BLAZE_TO_COCO = {
     "left_knee": 25, "right_knee": 26,
     "left_ankle": 27, "right_ankle": 28,
 }
-
-# Extended foot keypoints (BlazePose indices) appended after the COCO-17 core.
 EXTRA_LANDMARKS = [
     ("left_heel", 29), ("right_heel", 30),
     ("left_foot_index", 31), ("right_foot_index", 32),
 ]
 EXTRA_NAMES = [name for name, _ in EXTRA_LANDMARKS]
 
+SUPPORTED_VARIANTS = ("full", "heavy", "lite")
 
-def _import_solutions_pose():
-    """Return the real ``mediapipe.solutions.pose`` module or raise ImportError."""
-    importlib.import_module("mediapipe")
-    pose_mod = importlib.import_module("mediapipe.solutions.pose")
-    if not hasattr(pose_mod, "Pose"):
-        raise ImportError("mediapipe.solutions.pose has no 'Pose' (incomplete build)")
-    # Confirm the native binding exists (hollow stubs lack mediapipe.python).
-    importlib.import_module("mediapipe.python")
-    return pose_mod
+
+def resolve_model_path(variant: str = "full") -> Optional[Path]:
+    variant = variant.lower()
+    if variant not in SUPPORTED_VARIANTS:
+        return None
+    candidates: list[Path] = []
+    variant_env = os.environ.get(f"HORALIX_MEDIAPIPE_{variant.upper()}_MODEL_PATH")
+    if variant_env:
+        candidates.append(Path(variant_env))
+    if variant == "full":
+        generic_env = os.environ.get("HORALIX_MEDIAPIPE_MODEL_PATH")
+        if generic_env:
+            candidates.append(Path(generic_env))
+    filename = f"pose_landmarker_{variant}.task"
+    candidates += [
+        REPO_ROOT / "models" / "pose" / "mediapipe" / filename,
+        REPO_ROOT / "apps" / "api" / "models" / "mediapipe" / filename,
+    ]
+    for c in candidates:
+        if c.exists():
+            return c
+    return None
+
+
+def tasks_import_error() -> Optional[str]:
+    """Return None if the MediaPipe Tasks vision API is importable, else why not."""
+    try:
+        importlib.import_module("mediapipe")
+        importlib.import_module("mediapipe.tasks.python")
+        importlib.import_module("mediapipe.tasks.python.vision")
+        return None
+    except Exception as e:
+        return f"{type(e).__name__}: {e}"
 
 
 def mediapipe_version() -> str:
@@ -64,84 +93,138 @@ def mediapipe_version() -> str:
 
 
 def detect_device() -> str:
-    # MediaPipe Python solutions run on CPU (XNNPACK) by default; a GPU delegate
-    # is not enabled here. Report honestly.
+    # MediaPipe Tasks runs on CPU (XNNPACK) by default in the Python package.
     return "cpu"
 
 
 class MediaPipePoseEstimator(BasePoseEstimator):
-    def __init__(self, model_complexity: int = 1, min_detection_confidence: float = 0.5):
-        self.model_complexity = model_complexity
-        self.min_detection_confidence = min_detection_confidence
+    """MediaPipe Tasks PoseLandmarker adapter."""
+
+    model_variant = "full"
+    backend_id = "mediapipe_tasks_full"
+
+    def __init__(self, model_path: Optional[str] = None,
+                 min_pose_detection_confidence: float = 0.5, variant: Optional[str] = None):
+        self.model_variant = (variant or self.model_variant).lower()
+        self.backend_id = f"mediapipe_tasks_{self.model_variant}"
+        self.model_path = Path(model_path) if model_path else resolve_model_path(self.model_variant)
+        self.min_pose_detection_confidence = min_pose_detection_confidence
         self.device = detect_device()
+        self.model_file = str(self.model_path) if self.model_path else ""
 
-    @staticmethod
-    def is_available() -> bool:
-        try:
-            _import_solutions_pose()
-            return True
-        except Exception:
-            return False
+    # ------------------------------------------------------------------ #
+    @classmethod
+    def is_available(cls) -> bool:
+        return tasks_import_error() is None and resolve_model_path(cls.model_variant) is not None
 
-    @staticmethod
-    def availability_error() -> str | None:
-        try:
-            _import_solutions_pose()
-            return None
-        except Exception as e:  # surfaced to the model loader / status API
-            return f"{type(e).__name__}: {e}"
+    @classmethod
+    def availability_error(cls) -> Optional[str]:
+        err = tasks_import_error()
+        if err:
+            return err
+        if resolve_model_path(cls.model_variant) is None:
+            return (
+                f"MediaPipe Tasks {cls.model_variant} model file not found. Place "
+                f"pose_landmarker_{cls.model_variant}.task under models/pose/mediapipe/."
+            )
+        return None
 
     def get_model_info(self) -> PoseModelInfo:
         return PoseModelInfo(
-            name="MediaPipe Pose (BlazePose)",
+            name=f"MediaPipe Pose Landmarker {self.model_variant.title()} (Tasks)",
             version=mediapipe_version(),
             keypoint_format="COCO-17 + feet (heel, foot_index)",
             is_clinical_grade=False,
             notes=[
+                f"Model file: {self.model_file or '(unresolved)'}.",
+                f"Model variant: {self.model_variant}.",
                 "Single-camera 2D pose; depth and out-of-plane motion are limited.",
                 "Research/screening grade — clinical validation required.",
             ],
         )
 
-    def _new_pose(self):
-        pose_mod = _import_solutions_pose()
-        return pose_mod.Pose(
-            static_image_mode=False,
-            model_complexity=self.model_complexity,
-            enable_segmentation=False,
-            min_detection_confidence=self.min_detection_confidence,
-            min_tracking_confidence=0.5,
+    # ------------------------------------------------------------------ #
+    def _build_landmarker(self):
+        from mediapipe.tasks.python import BaseOptions
+        from mediapipe.tasks.python.vision import (
+            PoseLandmarker,
+            PoseLandmarkerOptions,
+            RunningMode,
         )
 
+        if not self.model_path or not self.model_path.exists():
+            raise FileNotFoundError(
+                "MediaPipe Tasks model (.task) not found. "
+                "Set HORALIX_MEDIAPIPE_MODEL_PATH or add pose_landmarker_full.task."
+            )
+        options = PoseLandmarkerOptions(
+            base_options=BaseOptions(model_asset_path=str(self.model_path)),
+            running_mode=RunningMode.VIDEO,
+            num_poses=1,
+            min_pose_detection_confidence=self.min_pose_detection_confidence,
+            min_pose_presence_confidence=0.5,
+            min_tracking_confidence=0.5,
+        )
+        return PoseLandmarker.create_from_options(options)
+
     def estimate_2d_pose(self, frames: np.ndarray, fps: float) -> PoseSequence:
-        if not self.is_available():
+        if tasks_import_error() is not None:
             raise RuntimeError(
                 "Real pose model is unavailable. Run model setup or switch to Demo Mode. "
                 f"({self.availability_error()})"
             )
-        n, h, w = frames.shape[0], frames.shape[1], frames.shape[2]
+        import cv2
+        import mediapipe as mp
+
+        n, h, w = int(frames.shape[0]), int(frames.shape[1]), int(frames.shape[2])
         core = np.zeros((n, 17, 3), dtype=np.float64)
         extra = np.zeros((n, len(EXTRA_LANDMARKS), 3), dtype=np.float64)
-        pose = self._new_pose()
+        fps = fps if fps and fps > 0 else 30.0
+
+        landmarker = self._build_landmarker()
         try:
+            last_ts = -1
             for i in range(n):
-                rgb = np.ascontiguousarray(frames[i][..., ::-1])  # BGR -> RGB
-                res = pose.process(rgb)
-                if not res.pose_landmarks:
-                    continue
-                lms = res.pose_landmarks.landmark
+                rgb = cv2.cvtColor(frames[i], cv2.COLOR_BGR2RGB)
+                mp_image = mp.Image(image_format=mp.ImageFormat.SRGB,
+                                    data=np.ascontiguousarray(rgb))
+                # Monotonically increasing timestamps in milliseconds.
+                ts = int(round(i * 1000.0 / fps))
+                if ts <= last_ts:
+                    ts = last_ts + 1
+                last_ts = ts
+                result = landmarker.detect_for_video(mp_image, ts)
+                if not result.pose_landmarks:
+                    continue  # no pose this frame -> leave zeros (missing)
+                lms = result.pose_landmarks[0]
                 for name, bi in _BLAZE_TO_COCO.items():
                     lm = lms[bi]
-                    ci = KEYPOINT[name]
-                    core[i, ci] = [lm.x * w, lm.y * h, float(getattr(lm, "visibility", 0.5))]
+                    core[i, KEYPOINT[name]] = [lm.x * w, lm.y * h, _score(lm)]
                 for j, (_, bi) in enumerate(EXTRA_LANDMARKS):
                     lm = lms[bi]
-                    extra[i, j] = [lm.x * w, lm.y * h, float(getattr(lm, "visibility", 0.5))]
+                    extra[i, j] = [lm.x * w, lm.y * h, _score(lm)]
         finally:
-            pose.close()
+            landmarker.close()
 
         t = np.arange(n) / fps
         return PoseSequence(
             keypoints=core, fps=fps, width=w, height=h, timestamps=t,
             names=list(COCO17_NAMES), extra_keypoints=extra, extra_names=list(EXTRA_NAMES),
         )
+
+
+def _score(lm) -> float:
+    """Confidence for a landmark: visibility, falling back to presence."""
+    vis = float(getattr(lm, "visibility", 0.0) or 0.0)
+    pres = float(getattr(lm, "presence", 0.0) or 0.0)
+    return max(vis, pres) if (vis or pres) else 0.5
+
+
+class MediaPipeFullPoseEstimator(MediaPipePoseEstimator):
+    model_variant = "full"
+    backend_id = "mediapipe_tasks_full"
+
+
+class MediaPipeHeavyPoseEstimator(MediaPipePoseEstimator):
+    model_variant = "heavy"
+    backend_id = "mediapipe_tasks_heavy"

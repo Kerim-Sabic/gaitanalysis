@@ -79,8 +79,8 @@ def render_overlay_video(
         # HUD
         cv2.putText(canvas, f"Horalix Gait AI  ·  frame {i}  ·  conf {pose.frames[i].mean_confidence:.2f}",
                     (12, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (235, 235, 235), 1, cv2.LINE_AA)
-        if result.analysis_mode.value == "demo":
-            cv2.putText(canvas, "DEMO - simulated keypoints, not clinical-grade",
+        if result.simulated_data_used:
+            cv2.putText(canvas, "DEMO - simulated keypoints, not real patient analysis",
                         (12, h - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (60, 180, 250), 1, cv2.LINE_AA)
         # event marker
         if i in event_frames:

@@ -3,6 +3,10 @@ import type {
   CaseSummary,
   DemoPreset,
   GaitAnalysisResult,
+  KeypointStat,
+  ModelInfo,
+  ModelStatus,
+  ModelVerifyResult,
   PatientCase,
   PatientCaseCreate,
   PoseTrack,
@@ -13,6 +17,17 @@ import type {
 
 // Browser calls go through the Next rewrite at /api -> FastAPI.
 const BASE = "/api";
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+    public code?: string,
+    public data?: unknown,
+  ) {
+    super(message);
+  }
+}
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
@@ -26,22 +41,29 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     cache: "no-store",
   });
   if (!res.ok) {
-    let detail = res.statusText;
+    let detail: unknown = res.statusText;
     try {
       const j = await res.json();
       detail = j.detail ?? detail;
     } catch {
       /* ignore */
     }
-    throw new ApiError(detail, res.status);
+    // FastAPI detail may be a structured object (e.g. model_unavailable).
+    if (detail && typeof detail === "object") {
+      const d = detail as { message?: string; code?: string };
+      throw new ApiError(d.message ?? "Request failed", res.status, d.code, detail);
+    }
+    throw new ApiError(String(detail), res.status);
   }
   return (await res.json()) as T;
 }
 
-export class ApiError extends Error {
-  constructor(message: string, public status: number) {
-    super(message);
-  }
+export interface KeypointSeries {
+  analysis_id: string;
+  analysis_mode: string;
+  keypoint_source: string;
+  keypoint_stats: KeypointStat[];
+  track: PoseTrack;
 }
 
 export const api = {
@@ -57,12 +79,20 @@ export const api = {
   getQuality: (videoId: string) => req<QualityResult>(`/videos/${videoId}/quality`),
   rawVideoUrl: (videoId: string) => `${BASE}/videos/${videoId}/raw`,
 
+  // Models (control plane)
+  modelStatus: () => req<ModelStatus>("/models/status"),
+  modelVerify: () => req<ModelVerifyResult>("/models/verify"),
+
   // Analysis
   startAnalysis: (payload: {
     video_id: string;
     test_type?: TestType;
     demo_preset?: string;
-  }) => req<AnalysisProgress>("/analysis/start", { method: "POST", body: JSON.stringify(payload) }),
+  }) =>
+    req<AnalysisProgress>("/analysis/start", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   startDemo: (preset: DemoPreset) =>
     req<AnalysisProgress>("/analysis/demo", {
       method: "POST",
@@ -71,6 +101,9 @@ export const api = {
   getStatus: (id: string) => req<AnalysisProgress>(`/analysis/${id}/status`),
   getResult: (id: string) => req<GaitAnalysisResult>(`/analysis/${id}/result`),
   getPose: (id: string) => req<PoseTrack>(`/analysis/${id}/pose`),
+  getKeypoints: (id: string) => req<KeypointSeries>(`/analysis/${id}/keypoints`),
+  getAnalysisModelStatus: (id: string) =>
+    req<{ model_info: ModelInfo }>(`/analysis/${id}/model-status`),
   reportPdfUrl: (id: string) => `${BASE}/analysis/${id}/report.pdf`,
   reportJsonUrl: (id: string) => `${BASE}/analysis/${id}/report.json`,
   overlayVideoUrl: (id: string) => `${BASE}/analysis/${id}/overlay-video`,

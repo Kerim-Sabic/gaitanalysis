@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Camera,
@@ -43,6 +43,18 @@ const CAPTURE_TIPS = [
 
 export default function AnalyzePage() {
   const router = useRouter();
+  const [realAvailable, setRealAvailable] = useState<boolean | null>(null);
+  const [modelName, setModelName] = useState<string>("");
+
+  useEffect(() => {
+    api
+      .modelStatus()
+      .then((s) => {
+        setRealAvailable(s.real_analysis_available);
+        setModelName(s.model_name || s.active_backend);
+      })
+      .catch(() => setRealAvailable(false));
+  }, []);
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -142,6 +154,22 @@ export default function AnalyzePage() {
           capture quality before analysis.
         </p>
       </div>
+
+      {/* Real-model availability banner */}
+      {realAvailable === null ? null : realAvailable ? (
+        <div className="flex items-center gap-2 rounded-xl border border-good/40 bg-good/10 px-3 py-2 text-xs text-good">
+          <span className="h-1.5 w-1.5 rounded-full bg-good" />
+          Real AI model ready ({modelName}). Uploaded videos run real pose inference.
+        </div>
+      ) : (
+        <div className="rounded-xl border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
+          Real pose model is unavailable on this server. Install it
+          (<code className="font-mono">pip install mediapipe</code> then
+          <code className="font-mono"> python scripts/verify_models.py</code>) to analyse
+          uploaded videos, or run a Demo below. Demo Mode uses simulated keypoints and is
+          not real patient analysis.
+        </div>
+      )}
 
       {/* Stepper */}
       <div className="flex items-center gap-2">

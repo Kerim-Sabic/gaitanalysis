@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.pipeline.pose.mediapipe_adapter import MediaPipePoseEstimator
 from app.pipeline.pose.mmpose_adapter import MMPosePoseEstimator
-from app.routes import analysis, cases, videos
+from app.routes import analysis, cases, models, videos
 
 settings = get_settings()
 
@@ -31,6 +31,7 @@ app.add_middleware(
 app.include_router(cases.router)
 app.include_router(videos.router)
 app.include_router(analysis.router)
+app.include_router(models.router)
 
 
 @app.get("/", tags=["meta"])
@@ -48,13 +49,17 @@ def root():
 
 @app.get("/health", tags=["meta"])
 def health():
+    from app.models.model_loader import get_model_loader
+
+    status = get_model_loader().status()
     return {
         "status": "healthy",
         "pose_backend_pref": settings.pose_backend,
         "models": {
             "mmpose_available": MMPosePoseEstimator.is_available(),
             "mediapipe_available": MediaPipePoseEstimator.is_available(),
-            "simulated_fallback": True,
+            "real_analysis_available": status.real_analysis_available,
+            "active_backend": status.active_backend,
         },
         "demo_mode": settings.allow_demo_mode,
     }

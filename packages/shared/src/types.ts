@@ -17,7 +17,15 @@ export type CameraView = "sagittal" | "coronal" | "unknown";
 
 export type AnalysisStatus = "queued" | "running" | "completed" | "failed";
 
-export type AnalysisMode = "clinical" | "demo";
+export type AnalysisMode =
+  | "real_mediapipe_tasks"
+  | "real_ultralytics_pose"
+  | "real_mediapipe"
+  | "real_mmpose"
+  | "demo_simulated"
+  | "failed";
+
+export type KeypointSource = "real_video_inference" | "simulated" | "none";
 
 export type FlagSeverity = "info" | "low" | "moderate" | "high";
 
@@ -82,6 +90,14 @@ export interface QualityResult {
   duration_ok: boolean;
   framerate_ok: boolean;
   detected_view: CameraView;
+  status: string;
+  pose_valid_percentage: number;
+  person_size_percent: number;
+  ankle_confidence: number;
+  heel_confidence: number;
+  foot_index_confidence: number;
+  multi_person_risk: number;
+  occlusion_missing_percentage: number;
   warnings: string[];
   recommendations: string[];
 }
@@ -95,6 +111,13 @@ export interface Metric {
   status: MetricStatus;
   normal_reference?: string | null;
   interpretation: string;
+  source_keypoints: string[];
+  source_model: string;
+  source_backend: string;
+  selected_model: string;
+  analysis_mode?: AnalysisMode | null;
+  limitations: string[];
+  confidence_reason: string;
 }
 
 export interface Asymmetry {
@@ -140,17 +163,51 @@ export interface ClinicalFlag {
   supporting_metrics: string[];
 }
 
+export interface KeypointStat {
+  name: string;
+  side: "left" | "right" | "midline" | string;
+  index: number;
+  mean_confidence: number;
+  valid_frame_percent: number;
+  missing_frame_percent: number;
+  interpolated_percent: number;
+  quality_band: "good" | "moderate" | "limited" | "unreliable" | string;
+  related_metrics: string[];
+  note: string;
+}
+
 export interface ModelInfo {
   pose_model: string;
   pose_model_version: string;
+  pose_backend: string;
   analysis_mode: AnalysisMode;
   keypoint_format: string;
+  keypoint_source: KeypointSource;
   pipeline_version: string;
+  model_loaded: boolean;
+  model_verified: boolean;
+  device: string;
   frame_count: number;
+  valid_pose_frames: number;
+  failed_frames: number;
   fps: number;
   mean_keypoint_confidence: number;
+  lowest_confidence_keypoints: string[];
+  interpolation_used: boolean;
+  processing_time_sec: number;
+  simulated_data_used: boolean;
   calibration_status: string;
+  clinical_validation_status: string;
   notes: string[];
+  selected_backend: string;
+  selection_reason: string;
+  backend_scores: Record<string, Record<string, number | boolean | string>>;
+  backend_failures: Record<string, string>;
+  model_limitations: string[];
+  foot_landmarks_available: boolean;
+  segmentation_status: string;
+  mmpose_status: string;
+  sam2_status: string;
 }
 
 export interface AnalysisStageState {
@@ -177,11 +234,15 @@ export interface GaitAnalysisResult {
   status: AnalysisStatus;
   test_type: TestType;
   analysis_mode: AnalysisMode;
+  pose_backend: string;
+  keypoint_source: KeypointSource;
+  simulated_data_used: boolean;
   quality: QualityResult;
   metrics: Metric[];
   asymmetry: Asymmetry[];
   events: GaitEvent[];
   joint_curves: JointCurve[];
+  keypoint_stats: KeypointStat[];
   clinical_flags: ClinicalFlag[];
   mobility_risk_support_score: number;
   mobility_risk_band: string;
@@ -199,6 +260,7 @@ export interface PoseFrame {
   t: number;
   keypoints: number[][];
   mean_confidence: number;
+  interp?: number[];
 }
 
 export interface PoseTrack {
@@ -212,4 +274,34 @@ export interface PoseTrack {
   left_indices: number[];
   right_indices: number[];
   frames: PoseFrame[];
+}
+
+export interface ModelStatus {
+  active_backend: string;
+  available_backends: string[];
+  model_loaded: boolean;
+  model_name: string;
+  model_version: string;
+  device: string;
+  initialization_error?: string | null;
+  last_healthcheck_status: string;
+  demo_mode_available: boolean;
+  real_analysis_available: boolean;
+  backend_availability: Record<string, boolean>;
+  backend_errors: Record<string, string>;
+}
+
+export interface ModelVerifyResult {
+  passed: boolean;
+  backend: string;
+  model_name: string;
+  model_version: string;
+  device: string;
+  initialized: boolean;
+  inference_ran: boolean;
+  landmarks_detected: boolean;
+  landmark_count: number;
+  average_confidence: number;
+  error?: string | null;
+  note: string;
 }

@@ -6,11 +6,60 @@ services:
     ports:
       - "8000:8000"
     environment:
-      HORALIX_POSE_BACKEND: auto
+      HORALIX_POSE_BACKEND: auto_best
       HORALIX_ALLOW_DEMO_MODE: "true"
       HORALIX_CORS_ORIGINS: '["http://localhost:3000"]'
     volumes:
       - ./data:/app/../data
+    restart: unless-stopped
+
+  # Real-inference backend (MediaPipe Tasks). Opt-in:
+  #   docker compose --profile real up --build api-real
+  api-real:
+    profiles: ["real"]
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile.real
+    ports:
+      - "8000:8000"
+    environment:
+      HORALIX_POSE_BACKEND: auto_best
+      HORALIX_MEDIAPIPE_MODEL_PATH: /models/pose/mediapipe/pose_landmarker_full.task
+      HORALIX_ALLOW_DEMO_MODE: "true"
+      HORALIX_CORS_ORIGINS: '["http://localhost:3000"]'
+    volumes:
+      - ./data:/data
+      - ./models:/models:ro
+    restart: unless-stopped
+
+  api-mmpose:
+    profiles: ["mmpose"]
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile.mmpose
+    ports:
+      - "8011:8000"
+    environment:
+      HORALIX_POSE_BACKEND: mmpose_rtmw
+      HORALIX_ALLOW_DEMO_MODE: "true"
+    volumes:
+      - ./data:/data
+      - ./models:/models:ro
+    restart: unless-stopped
+
+  api-vision:
+    profiles: ["vision"]
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile.vision
+    ports:
+      - "8012:8000"
+    environment:
+      HORALIX_POSE_BACKEND: auto_best
+      HORALIX_ALLOW_DEMO_MODE: "true"
+    volumes:
+      - ./data:/data
+      - ./models:/models:ro
     restart: unless-stopped
 
   web:

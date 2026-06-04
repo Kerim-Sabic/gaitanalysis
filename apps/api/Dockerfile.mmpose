@@ -1,0 +1,22 @@
+FROM python:3.10-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git ffmpeg libglib2.0-0 libgl1 build-essential \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY requirements.txt requirements-mmpose.txt ./
+RUN python -m pip install --upgrade pip openmim && \
+    python -m pip install -r requirements.txt && \
+    python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu && \
+    mim install mmengine mmcv mmdet mmpose
+
+COPY app ./app
+COPY scripts ./scripts
+
+ENV HORALIX_POSE_BACKEND=mmpose_rtmw \
+    HORALIX_MMPPOSE_CONFIG=/models/pose/rtmw/configs/rtmw-x_384x288.py \
+    HORALIX_MMPPOSE_CHECKPOINT=/models/pose/rtmw/rtmw-x_simcc-cocktail14_pt-ucoco_270e-384x288-f840f204_20231122.pth
+
+EXPOSE 8000
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

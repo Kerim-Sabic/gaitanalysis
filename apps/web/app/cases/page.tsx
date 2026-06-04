@@ -90,7 +90,7 @@ export default function CasesPage() {
                   </td>
                   <td className="px-4 py-3 text-fg-subtle">
                     {relativeDate(c.last_analysis_at)}
-                    {last_mode === "demo" ? (
+                    {last_mode === "demo_simulated" ? (
                       <Badge tone="warn" className="ml-2">demo</Badge>
                     ) : null}
                   </td>

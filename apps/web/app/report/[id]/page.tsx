@@ -33,7 +33,7 @@ export default function ReportPage({ params }: { params: { id: string } }) {
   if (error) return <p className="text-sm text-danger">{error}</p>;
   if (!result) return <CenteredSpinner label="Loading report…" />;
 
-  const isDemo = result.analysis_mode === "demo";
+  const isDemo = result.simulated_data_used;
   const mi = result.model_info;
 
   return (

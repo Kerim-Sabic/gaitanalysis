@@ -16,5 +16,10 @@ Wiring:
 - Segmentation → `apps/api/app/pipeline/segmentation/sam2_adapter.py`
 - Selection → `HORALIX_POSE_BACKEND` (see `apps/api/app/config.py`)
 
-Until weights + adapters are wired, the system runs in simulated/demo mode and
-labels output accordingly. See [../docs/architecture.md](../docs/architecture.md).
+Weights can exist without a runnable model. `scripts/verify_all_vision_models.py`
+only reports `WORKING` after imports, initialization, real-sample inference, and
+output detection all pass. Matching MMPose configs are required under
+`models/pose/rtmw/configs/`; WHAM requires user-supplied licensed SMPL assets.
+
+Model files, archives, and extracted assets are ignored and must not be committed.
+See [../docs/architecture.md](../docs/architecture.md).

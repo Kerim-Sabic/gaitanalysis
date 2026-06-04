@@ -203,17 +203,51 @@ def build_pdf_report(result: GaitAnalysisResult, case: PatientCase) -> bytes:
     for r in result.recommendations:
         el.append(Paragraph(f"• {r}", ss["Small"]))
 
-    # 11. Model metadata
-    el.append(Paragraph("10 · Model / version metadata", ss["H2"]))
+    # 10. Model transparency
+    el.append(Paragraph("10 · Model transparency", ss["H2"]))
     mi = result.model_info
+    is_demo = result.analysis_mode == AnalysisMode.demo_simulated
     el.append(_kv_table([
-        ["Pose model", f"{mi.pose_model} {mi.pose_model_version}",
-         "Pipeline", mi.pipeline_version],
-        ["Keypoint format", mi.keypoint_format, "Analysis mode", mi.analysis_mode.value],
-        ["Frames", str(mi.frame_count), "FPS", f"{mi.fps:g}"],
-        ["Mean kp confidence", f"{mi.mean_keypoint_confidence:.0%}",
+        ["Pose model", f"{mi.pose_model} {mi.pose_model_version}", "Backend", mi.pose_backend],
+        ["Selected backend", mi.selected_backend or mi.pose_backend,
+         "Foot landmarks", "Available" if mi.foot_landmarks_available else "Unavailable"],
+        ["Analysis mode", mi.analysis_mode.value, "Keypoint source", mi.keypoint_source],
+        ["Real model loaded", "Yes" if mi.model_loaded else "No",
+         "Model verified", "Yes" if mi.model_verified else "No"],
+        ["Device", mi.device, "Simulated data used", "Yes" if mi.simulated_data_used else "No"],
+        ["Frames processed", str(mi.frame_count),
+         "Valid pose frames", str(mi.valid_pose_frames)],
+        ["Mean keypoint confidence", f"{mi.mean_keypoint_confidence:.0%}",
          "Calibration", mi.calibration_status],
-    ], [34 * mm, 56 * mm, 30 * mm, 50 * mm]))
+        ["Lowest-confidence keypoints", ", ".join(mi.lowest_confidence_keypoints) or "—",
+         "Interpolation used", "Yes" if mi.interpolation_used else "No"],
+        ["Clinical validation", mi.clinical_validation_status, "Pipeline", f"v{mi.pipeline_version}"],
+    ], [38 * mm, 52 * mm, 34 * mm, 46 * mm]))
+    if mi.selection_reason:
+        el.append(Paragraph(f"<b>Selection reason:</b> {mi.selection_reason}", ss["Small"]))
+    if mi.backend_scores:
+        score_text = "; ".join(
+            f"{name}: {details.get('final_score', 0):.1f}/100"
+            for name, details in mi.backend_scores.items()
+        )
+        el.append(Paragraph(f"<b>Compared backend scores:</b> {score_text}", ss["Small"]))
+    if mi.backend_failures:
+        el.append(Paragraph(
+            "<b>Unavailable/failed backends:</b> "
+            + "; ".join(f"{name}: {reason}" for name, reason in mi.backend_failures.items()),
+            ss["Small"],
+        ))
+
+    # Provenance statement (real vs demo).
+    if is_demo:
+        el.append(Paragraph(
+            "<b>Demo Mode — simulated keypoints, not real patient analysis.</b>",
+            ParagraphStyle("prov", parent=ss["Small"], textColor=colors.HexColor("#B45309"))))
+    else:
+        el.append(Paragraph(
+            "Real AI keypoint analysis from uploaded video. This analysis is intended "
+            "to support clinical review and should not be used as a standalone "
+            "diagnostic decision.", ss["Small"]))
 
     # 11. Disclaimer
     el.append(Spacer(1, 8))

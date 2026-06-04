@@ -1,0 +1,26 @@
+# Horalix Gait AI — REAL inference image (MediaPipe Tasks + Ultralytics).
+# Designed to avoid the local stub-MediaPipe issue by installing from official PyPI.
+FROM python:3.11-slim
+
+# OS libraries needed by OpenCV / MediaPipe video processing.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libglib2.0-0 libgl1 libsm6 libxext6 ffmpeg \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install real-inference deps from official PyPI (override any mirror).
+COPY requirements-real.txt .
+RUN python -m pip install --upgrade pip && \
+    python -m pip install --index-url https://pypi.org/simple -r requirements-real.txt
+
+COPY app ./app
+COPY scripts ./scripts
+
+# MediaPipe .task weights are mounted/copied at runtime (see docker-compose).
+# Default real backend.
+ENV HORALIX_POSE_BACKEND=auto_best \
+    HORALIX_MEDIAPIPE_MODEL_PATH=/models/pose/mediapipe/pose_landmarker_full.task
+
+EXPOSE 8000
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

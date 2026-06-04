@@ -41,6 +41,24 @@ def start_analysis(payload: StartAnalysisRequest) -> AnalysisProgress:
     if payload.demo_preset and payload.demo_preset not in DEMO_PRESETS:
         raise HTTPException(400, f"Unknown demo preset. Allowed: {sorted(DEMO_PRESETS)}")
 
+    # Fail fast for REAL analysis when no real model is available — never silently
+    # fall back to demo. The UI offers an explicit "Use Demo Mode Instead" action.
+    if not payload.demo_preset:
+        from app.models.model_loader import get_model_loader
+
+        status = get_model_loader().status()
+        if not status.real_analysis_available:
+            raise HTTPException(
+                422,
+                detail={
+                    "message": "Real pose model is unavailable. Run model setup or "
+                               "switch to Demo Mode.",
+                    "code": "model_unavailable",
+                    "initialization_error": status.initialization_error,
+                    "demo_mode_available": status.demo_mode_available,
+                },
+            )
+
     test_type = payload.test_type or video.test_type
     progress = service.create_job(case.id)
     service.submit(progress, case, video, test_type, payload.demo_preset)
@@ -113,6 +131,39 @@ def get_pose(analysis_id: str) -> PoseTrack:
     if not pose:
         raise HTTPException(404, "Pose track not available")
     return pose
+
+
+@router.get("/{analysis_id}/keypoints")
+def get_keypoints(analysis_id: str):
+    """Keypoint time series + per-keypoint tracking-quality stats for the
+    Keypoint Analysis view."""
+    storage = get_storage()
+    pose = storage.get_pose(analysis_id)
+    result = storage.get_result(analysis_id)
+    if not pose or not result:
+        raise HTTPException(404, "Keypoints not available")
+    return {
+        "analysis_id": analysis_id,
+        "analysis_mode": result.analysis_mode,
+        "keypoint_source": result.keypoint_source,
+        "keypoint_stats": result.keypoint_stats,
+        "track": pose,
+    }
+
+
+@router.get("/{analysis_id}/model-status")
+def get_analysis_model_status(analysis_id: str):
+    """Model provenance for a specific analysis (from the stored result)."""
+    result = get_storage().get_result(analysis_id)
+    if not result:
+        raise HTTPException(404, "Result not available")
+    return {
+        "analysis_id": analysis_id,
+        "analysis_mode": result.analysis_mode,
+        "pose_backend": result.pose_backend,
+        "simulated_data_used": result.simulated_data_used,
+        "model_info": result.model_info,
+    }
 
 
 @router.get("/{analysis_id}/report.json")

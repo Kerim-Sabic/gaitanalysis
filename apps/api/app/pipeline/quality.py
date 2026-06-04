@@ -80,6 +80,7 @@ class QualityAssessmentService:
 
         # --- Pose-based refinement. ---
         full_body, feet_vis, view = self._pose_quality(seq)
+        pose_details = self._pose_details(seq)
 
         warnings: list[str] = []
         recs: list[str] = []
@@ -113,6 +114,27 @@ class QualityAssessmentService:
             + 0.22 * full_body + 0.20 * feet_vis
             - (0 if framerate_ok else 10) - (0 if duration_ok else 8)
         )
+        if pose_details["pose_valid_percentage"] <= 0:
+            status = "FAIL_NO_PERSON"
+        elif not duration_ok:
+            status = "FAIL_VIDEO_TOO_SHORT"
+        elif pose_details["feet_visibility_confidence"] < 0.15:
+            status = "FAIL_FEET_NOT_VISIBLE"
+        elif pose_details["average_confidence"] < 0.20:
+            status = "FAIL_LOW_CONFIDENCE"
+        elif (
+            pose_details["pose_valid_percentage"] >= 60
+            and pose_details["feet_visibility_confidence"] >= 0.45
+            and overall >= 70
+        ):
+            status = "PASS"
+        else:
+            status = "PASS_WITH_LIMITATIONS"
+        if pose_details["pose_valid_percentage"] < 60:
+            warnings.append(
+                f"Pose was confidently valid in only "
+                f"{pose_details['pose_valid_percentage']:.0f}% of frames."
+            )
 
         return QualityResult(
             overall_score=round(overall, 1),
@@ -125,6 +147,14 @@ class QualityAssessmentService:
             duration_ok=duration_ok,
             framerate_ok=framerate_ok,
             detected_view=view,
+            status=status,
+            pose_valid_percentage=round(pose_details["pose_valid_percentage"], 1),
+            person_size_percent=round(pose_details["person_size_percent"], 1),
+            ankle_confidence=round(pose_details["ankle_confidence"], 3),
+            heel_confidence=round(pose_details["heel_confidence"], 3),
+            foot_index_confidence=round(pose_details["foot_index_confidence"], 3),
+            multi_person_risk=0.0,
+            occlusion_missing_percentage=round(pose_details["missing_percentage"], 1),
             warnings=warnings,
             recommendations=recs,
         )
@@ -150,3 +180,52 @@ class QualityAssessmentService:
         ratio = float(np.nanmedian(sh / (body_h + 1e-6)))
         view = CameraView.coronal if ratio > 0.22 else CameraView.sagittal
         return _clip(full_body), _clip(feet_vis), view
+
+    @staticmethod
+    def _pose_details(seq: PoseSequence | None) -> dict[str, float]:
+        empty = {
+            "pose_valid_percentage": 0.0,
+            "person_size_percent": 0.0,
+            "average_confidence": 0.0,
+            "ankle_confidence": 0.0,
+            "heel_confidence": 0.0,
+            "foot_index_confidence": 0.0,
+            "feet_visibility_confidence": 0.0,
+            "missing_percentage": 100.0,
+        }
+        if seq is None or seq.num_frames == 0:
+            return empty
+        names = seq.all_names()
+        all_kp = seq.all_keypoints()
+        scores = all_kp[..., 2]
+        frame_mean = np.nanmean(scores, axis=1)
+
+        def conf(wanted):
+            idx = [names.index(name) for name in wanted if name in names]
+            return float(np.nanmean(scores[:, idx])) if idx else 0.0
+
+        areas = []
+        for frame in all_kp:
+            visible = frame[:, 2] >= 0.25
+            if visible.sum() >= 4:
+                xs, ys = frame[visible, 0], frame[visible, 1]
+                areas.append(
+                    max(0.0, float(xs.max() - xs.min()))
+                    * max(0.0, float(ys.max() - ys.min()))
+                    / max(float(seq.width * seq.height), 1.0)
+                    * 100.0
+                )
+        ankle = conf(["left_ankle", "right_ankle"])
+        heel = conf(["left_heel", "right_heel"])
+        foot = conf(["left_foot_index", "right_foot_index"])
+        return {
+            "pose_valid_percentage": float(np.mean(frame_mean > 0.30) * 100.0),
+            "person_size_percent": float(np.median(areas)) if areas else 0.0,
+            "average_confidence": float(np.nanmean(scores)) if scores.size else 0.0,
+            "ankle_confidence": ankle,
+            "heel_confidence": heel,
+            "foot_index_confidence": foot,
+            "feet_visibility_confidence": float(np.mean([v for v in (ankle, heel, foot) if v > 0]))
+            if any(v > 0 for v in (ankle, heel, foot)) else 0.0,
+            "missing_percentage": float(np.mean(scores < 0.20) * 100.0),
+        }

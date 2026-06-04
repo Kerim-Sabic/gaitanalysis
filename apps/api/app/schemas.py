@@ -49,9 +49,30 @@ class AnalysisStatus(str, Enum):
 
 
 class AnalysisMode(str, Enum):
-    real_mediapipe = "real_mediapipe"  # real pose model ran inference on real frames
+    real_mediapipe_tasks = "real_mediapipe_tasks"  # MediaPipe Tasks PoseLandmarker
+    real_ultralytics_pose = "real_ultralytics_pose"  # Ultralytics YOLO-Pose (COCO-17)
+    real_mediapipe = "real_mediapipe"  # legacy/general real MediaPipe label
+    real_mmpose = "real_mmpose"  # real MMPose/RTMPose inference on real frames
     demo_simulated = "demo_simulated"  # simulated keypoints — NOT real patient analysis
     failed = "failed"  # model/inference failed; no metrics produced
+    # Compatibility aliases (same value -> resolve to the canonical members above)
+    # so older code paths using `.demo` / `.clinical` keep working.
+    demo = "demo_simulated"
+    clinical = "real_mediapipe"
+
+    @property
+    def is_real(self) -> bool:
+        return self in (
+            AnalysisMode.real_mediapipe_tasks,
+            AnalysisMode.real_ultralytics_pose,
+            AnalysisMode.real_mediapipe,
+            AnalysisMode.real_mmpose,
+        )
+
+    @classmethod
+    def _missing_(cls, value):
+        # Back-compat for results persisted before the provenance-specific values.
+        return {"demo": cls.demo_simulated, "clinical": cls.real_mediapipe}.get(value)
 
 
 class KeypointSource(str, Enum):
@@ -133,6 +154,14 @@ class QualityResult(BaseModel):
     duration_ok: bool = True
     framerate_ok: bool = True
     detected_view: CameraView = CameraView.unknown
+    status: str = "PASS_WITH_LIMITATIONS"
+    pose_valid_percentage: float = Field(0.0, ge=0, le=100)
+    person_size_percent: float = Field(0.0, ge=0, le=100)
+    ankle_confidence: float = Field(0.0, ge=0, le=1)
+    heel_confidence: float = Field(0.0, ge=0, le=1)
+    foot_index_confidence: float = Field(0.0, ge=0, le=1)
+    multi_person_risk: float = Field(0.0, ge=0, le=1)
+    occlusion_missing_percentage: float = Field(0.0, ge=0, le=100)
     warnings: list[str] = Field(default_factory=list)
     recommendations: list[str] = Field(default_factory=list)
 
@@ -152,6 +181,8 @@ class Metric(BaseModel):
     # Provenance — confidence is derived from these, not generic.
     source_keypoints: list[str] = Field(default_factory=list)
     source_model: str = ""
+    source_backend: str = ""
+    selected_model: str = ""
     analysis_mode: Optional[AnalysisMode] = None
     limitations: list[str] = Field(default_factory=list)
     confidence_reason: str = ""
@@ -236,6 +267,15 @@ class ModelInfo(BaseModel):
     calibration_status: str = "uncalibrated"
     clinical_validation_status: str = "Not yet validated — clinician review required"
     notes: list[str] = Field(default_factory=list)
+    selected_backend: str = ""
+    selection_reason: str = ""
+    backend_scores: dict[str, dict] = Field(default_factory=dict)
+    backend_failures: dict[str, str] = Field(default_factory=dict)
+    model_limitations: list[str] = Field(default_factory=list)
+    foot_landmarks_available: bool = False
+    segmentation_status: str = "not_run"
+    mmpose_status: str = "not_run"
+    sam2_status: str = "not_run"
 
 
 # --------------------------------------------------------------------------- #

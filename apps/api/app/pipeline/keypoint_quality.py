@@ -142,6 +142,7 @@ class KeypointQualityIndex:
         present = [n for n in source_keypoints if n in self.by_name]
         if not present:
             return 0.3, "No directly-tracked keypoints available for this metric."
+        missing_sources = [n for n in source_keypoints if n not in self.by_name]
         kp_conf = self.mean_conf(present)
         valid = self.min_valid_pct(present) / 100.0
         interp = self.max_interp_pct(present) / 100.0
@@ -150,6 +151,7 @@ class KeypointQualityIndex:
         conf = (0.45 * kp_conf + 0.25 * valid + 0.15 * q + 0.15 * event_consistency)
         conf *= (1.0 - 0.4 * interp)          # interpolation penalty
         conf *= calibration_factor            # e.g. speed without calibration
+        conf *= len(present) / max(len(source_keypoints), 1)  # unavailable-keypoint penalty
         conf = float(max(0.0, min(1.0, conf)))
 
         worst = min(present, key=lambda n: self.by_name[n].mean_confidence)
@@ -159,6 +161,10 @@ class KeypointQualityIndex:
             f"(mean conf {kp_conf:.0%}"
             + (f", {interp*100:.0f}% interpolated" if interp > 0.02 else "")
             + (f"; weakest: {worst.replace('_', ' ')}" if self.by_name[worst].mean_confidence < 0.6 else "")
+            + (
+                f"; unavailable: {', '.join(n.replace('_', ' ') for n in missing_sources)}"
+                if missing_sources else ""
+            )
             + ")."
         )
         return round(conf, 3), reason

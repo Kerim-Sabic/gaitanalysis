@@ -149,11 +149,11 @@ class GaitMetricsCalculator:
             rom[f"hip_{side}"] = self._rom(hip_excursion)
 
         # trunk sway: trunk vector (pelvis->neck) tilt from vertical, per frame
-        pelvis = np.nanmean(
-            [kp[:, KEYPOINT["left_hip"], :2], kp[:, KEYPOINT["right_hip"], :2]], axis=0
+        pelvis = _nanmean_tracks(
+            kp[:, KEYPOINT["left_hip"], :2], kp[:, KEYPOINT["right_hip"], :2]
         )
-        neck = np.nanmean(
-            [kp[:, KEYPOINT["left_shoulder"], :2], kp[:, KEYPOINT["right_shoulder"], :2]], axis=0
+        neck = _nanmean_tracks(
+            kp[:, KEYPOINT["left_shoulder"], :2], kp[:, KEYPOINT["right_shoulder"], :2]
         )
         trunk_vec = neck - pelvis
         trunk_tilt = np.degrees(np.arctan2(trunk_vec[:, 0], -trunk_vec[:, 1]))
@@ -252,9 +252,14 @@ class GaitMetricsCalculator:
         b.limitations.append(
             "Single-camera 2D analysis limits depth and out-of-plane motion accuracy."
         )
-        b.limitations.append(
-            "Heel/toe events derived from the ankle (no dedicated foot keypoints)."
-        )
+        if not all(
+            name in seq.all_names()
+            for name in ("left_heel", "right_heel", "left_foot_index", "right_foot_index")
+        ):
+            b.limitations.append(
+                "Dedicated heel/foot-index landmarks were unavailable; event timing uses "
+                "an ankle-based fallback with reduced confidence."
+            )
         if len(all_strides) < 4:
             b.limitations.append("Few gait cycles captured; variability estimates are limited.")
         return b
@@ -366,3 +371,14 @@ def _asym_pct(left, right):
     if mean == 0:
         return None
     return abs(left - right) / mean * 100.0
+
+
+def _nanmean_tracks(left: np.ndarray, right: np.ndarray) -> np.ndarray:
+    stack = np.stack([left, right], axis=0)
+    count = np.sum(np.isfinite(stack), axis=0)
+    return np.divide(
+        np.nansum(stack, axis=0),
+        count,
+        out=np.full_like(left, np.nan, dtype=float),
+        where=count > 0,
+    )
