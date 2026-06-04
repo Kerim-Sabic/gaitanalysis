@@ -55,6 +55,8 @@ def main() -> int:
     ap.add_argument("--full", action="store_true")
     ap.add_argument("--skip-frontend", action="store_true")
     ap.add_argument("--profile", action="store_true")
+    ap.add_argument("--strict", action="store_true",
+                    help="treat optional checks (Ultralytics, live preview) as blocking")
     args = ap.parse_args()
 
     c = Check()
@@ -92,7 +94,12 @@ def main() -> int:
     def _ultra():
         from app.pipeline.pose.ultralytics_adapter import UltralyticsPoseEstimator
         return (True, "available" if UltralyticsPoseEstimator.is_available() else "not installed (optional)")
-    c.run("Ultralytics (optional)", _ultra, blocking=False)
+    c.run("Ultralytics (optional)", _ultra, blocking=args.strict)
+
+    # Live-analysis page exists (frontend near-real-time preview).
+    c.run("live-analysis page present",
+          lambda: ((REPO_ROOT / "apps" / "web" / "app" / "live-analysis" / "page.tsx").exists(),
+                   "apps/web/app/live-analysis/page.tsx"))
 
     # Pose detection on real sample (uses loader.verify -> requires landmarks).
     def _verify():
@@ -134,6 +141,15 @@ def main() -> int:
                                capture_output=True, text=True, cwd=REPO_ROOT)
             return (r.returncode == 0 and "FULL REAL VERIFIED" in r.stdout, r.stdout.strip().splitlines()[-1] if r.stdout else "no output")
         c.run("real HTTP upload flow", _http)
+
+        def _live():
+            import json as _json
+            import urllib.request as _u
+            with _u.urlopen(args.api + "/live/status", timeout=15) as resp:
+                s = _json.loads(resp.read())
+            return (bool(s.get("available")) and s.get("simulated_data_used") is False,
+                    f"backend={s.get('backend')} available={s.get('available')}")
+        c.run("live preview endpoint", _live, blocking=args.strict)
 
     # Optional: frontend build.
     if args.full and not args.skip_frontend:
