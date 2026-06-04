@@ -277,6 +277,8 @@ class ModelInfo(BaseModel):
     segmentation_status: str = "not_run"
     mmpose_status: str = "not_run"
     sam2_status: str = "not_run"
+    depth_status: str = "not_run"
+    wham_status: str = "not_run"
 
 
 # --------------------------------------------------------------------------- #

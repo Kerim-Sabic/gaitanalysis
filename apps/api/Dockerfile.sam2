@@ -1,0 +1,29 @@
+# Horalix Gait AI — SAM2 segmentation profile (optional helper).
+# SAM2 needs torch; install it here rather than in the default image.
+# Build/run:  docker compose --profile sam2 up --build api-sam2
+FROM python:3.11-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git libglib2.0-0 libgl1 libsm6 libxext6 ffmpeg \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements-real.txt .
+RUN python -m pip install --upgrade pip && \
+    python -m pip install --index-url https://pypi.org/simple -r requirements-real.txt && \
+    # CPU torch + official SAM2 (segmentation helper, not the pose model).
+    python -m pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision && \
+    python -m pip install "git+https://github.com/facebookresearch/sam2.git"
+
+COPY app ./app
+COPY scripts ./scripts
+
+ENV HORALIX_POSE_BACKEND=auto_best \
+    HORALIX_ENABLE_SAM2=true \
+    HORALIX_SEGMENTATION_BACKEND=sam2 \
+    HORALIX_SAM2_MODEL_PATH=/models/segmentation/sam2.1_hiera_tiny.pt \
+    HORALIX_MEDIAPIPE_MODEL_PATH=/models/pose/mediapipe/pose_landmarker_full.task
+
+EXPOSE 8000
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

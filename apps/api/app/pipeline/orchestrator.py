@@ -283,9 +283,23 @@ class GaitPipeline:
 
         sam2_error = SAM2Segmenter().availability_error()
         sam2_status = (
-            "blocked_dependency" if "not installed" in sam2_error.lower()
-            else "blocked_runtime"
+            "blocked_dependency" if "not installed" in (sam2_error or "").lower()
+            else ("ok" if not sam2_error else "blocked_runtime")
         )
+        try:
+            from app.pipeline.pose.wham_adapter import WHAMAdapter
+
+            wham_status = WHAMAdapter.status()["status"].lower()
+        except Exception:
+            wham_status = "not_run"
+        try:
+            from app.pipeline.depth.depth_anything_adapter import DepthAnythingV2Adapter
+
+            depth_status = (
+                "ok" if DepthAnythingV2Adapter.is_available() else "blocked_dependency"
+            )
+        except Exception:
+            depth_status = "not_run"
         model_info = ModelInfo(
             pose_model=info.name,
             pose_model_version=info.version,
@@ -335,6 +349,8 @@ class GaitPipeline:
             ),
             sam2_status=sam2_status,
             segmentation_status=sam2_status,
+            depth_status=depth_status,
+            wham_status=wham_status,
         )
         result_limitations = bundle.limitations + (events.notes or [])
         if smoothed.mean_confidence < 0.35:

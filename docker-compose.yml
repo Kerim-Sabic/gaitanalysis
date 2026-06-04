@@ -47,6 +47,26 @@ services:
       - ./models:/models:ro
     restart: unless-stopped
 
+  # SAM2 segmentation helper profile (optional):
+  #   docker compose --profile sam2 up --build api-sam2
+  api-sam2:
+    profiles: ["sam2"]
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile.sam2
+    ports:
+      - "8013:8000"
+    environment:
+      HORALIX_POSE_BACKEND: auto_best
+      HORALIX_ENABLE_SAM2: "true"
+      HORALIX_SEGMENTATION_BACKEND: sam2
+      HORALIX_SAM2_MODEL_PATH: /models/segmentation/sam2.1_hiera_tiny.pt
+      HORALIX_ALLOW_DEMO_MODE: "true"
+    volumes:
+      - ./data:/data
+      - ./models:/models:ro
+    restart: unless-stopped
+
   api-vision:
     profiles: ["vision"]
     build:

@@ -111,6 +111,28 @@ def verify_pose_backend(label: str, max_frames: int = 60) -> dict[str, Any]:
     return result
 
 
+FIX_HINTS: dict[str, str] = {
+    "SAM2.1 Tiny": "pip install git+https://github.com/facebookresearch/sam2.git "
+                   "(needs torch); or: docker compose --profile sam2 up --build api-sam2",
+    "MMPose RTMW": "Install the OpenMMLab stack with matching versions "
+                   "(mim install mmengine 'mmcv>=2.0' mmdet mmpose) + RTMW config, "
+                   "or: docker compose --profile mmpose up --build api-mmpose",
+    "MMPose RTMW3D": "Install OpenMMLab + RTMW3D config/checkpoint, "
+                     "or: docker compose --profile mmpose up --build api-mmpose",
+    "Depth Anything V2": "pip install torch transformers and the Depth-Anything-V2 source; "
+                         "weights already under models/depth/ (optional helper, not required).",
+    "WHAM": "Obtain licensed SMPL body models from https://smpl.is.tue.mpg.de and place "
+            "SMPL_NEUTRAL.pkl (and male/female) under models/body_models/smpl/, install "
+            "torch + smplx + wham; checkpoints already under models/pose/wham/.",
+}
+
+
+def fix_hint(result: dict[str, Any]) -> str:
+    if result.get("status") in ("WORKING", "PARTIAL", "NOT_REQUIRED"):
+        return ""
+    return result.get("fix") or FIX_HINTS.get(result.get("model", ""), "See docs/deployment.md.")
+
+
 def print_result(result: dict[str, Any]) -> None:
     print(f"=== {result['model']} verification ===")
     for key in (
@@ -125,6 +147,15 @@ def print_result(result: dict[str, Any]) -> None:
         print(f"final_score              : {score.get('final_score', 0):.1f}")
     if result.get("error"):
         print(f"blocker                  : {result['error']}")
+    fx = fix_hint(result)
+    if fx:
+        print(f"fix                      : {fx}")
+    # Exact final status line per model.
+    label = result["model"].split()[0].upper().replace("SAM2.1", "SAM2").replace("MEDIAPIPE", "MEDIAPIPE")
+    if result.get("status") in ("WORKING", "PARTIAL", "NOT_REQUIRED"):
+        print(f"{label} VERIFIED")
+    else:
+        print(f"BLOCKED: {result['status']} — {result.get('error') or 'unavailable'}")
 
 
 def working_exit(result: dict[str, Any]) -> int:

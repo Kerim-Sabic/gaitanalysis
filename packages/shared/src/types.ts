@@ -209,6 +209,8 @@ export interface ModelInfo {
   segmentation_status: string;
   mmpose_status: string;
   sam2_status: string;
+  depth_status?: string;
+  wham_status?: string;
 }
 
 export interface AnalysisStageState {
