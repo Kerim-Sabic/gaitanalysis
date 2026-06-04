@@ -38,6 +38,7 @@ node_modules/
 .next/
 out/
 .turbo/
+.netlify/
 
 # Data & artefacts (do not commit patient media) — keep dir structure only
 data/uploads/*

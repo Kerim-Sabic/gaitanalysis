@@ -196,6 +196,27 @@ docker compose up --build
 # web → http://localhost:3000   api → http://localhost:8000
 ```
 
+### Deploy the frontend to Netlify
+
+The root `netlify.toml` builds the Next.js app from this monorepo and deploys
+`apps/web/.next` using Netlify's Next.js runtime. The FastAPI service must be
+deployed separately because Netlify does not run this repository's Python API.
+
+In Netlify, import this repository and set this environment variable for all
+deploy contexts:
+
+```text
+API_URL=https://your-public-fastapi-host.example.com
+```
+
+The frontend keeps browser requests on the Netlify origin and proxies `/api/*`
+to that backend, so no Netlify-domain CORS entry is required. Deploy using the
+settings from `netlify.toml`, or verify the same build locally:
+
+```bash
+npx netlify-cli build
+```
+
 ## Using the app
 
 1. **New analysis** → create a de-identified case (code/initials).

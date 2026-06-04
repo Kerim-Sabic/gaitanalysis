@@ -1,0 +1,13 @@
+[build]
+  command = "npm ci --prefix apps/web --no-audit --no-fund && npm run build --prefix apps/web"
+  publish = "apps/web/.next"
+
+[build.environment]
+  NODE_VERSION = "20"
+  NEXT_TELEMETRY_DISABLED = "1"
+
+[dev]
+  command = "npm run dev --prefix apps/web"
+  targetPort = 3000
+  port = 8888
+  framework = "#custom"
