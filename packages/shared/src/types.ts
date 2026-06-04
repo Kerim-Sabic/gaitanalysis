@@ -195,6 +195,7 @@ export interface ModelInfo {
   lowest_confidence_keypoints: string[];
   interpolation_used: boolean;
   processing_time_sec: number;
+  timings_ms?: Record<string, number>;
   simulated_data_used: boolean;
   calibration_status: string;
   clinical_validation_status: string;

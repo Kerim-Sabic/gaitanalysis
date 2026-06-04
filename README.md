@@ -78,11 +78,43 @@ python scripts/smoke_test.py            # runs all four demo presets
 python apps/api/scripts/integration_test.py  # end-to-end against a running server
 ```
 
+### Verified working path
+
+1. Set `HORALIX_POSE_BACKEND=auto_best` (the default).
+2. Auto-best currently selects **MediaPipe Heavy** on the GaHu sample
+   (`data/sample_videos/walk_test.mp4`): 108/156 valid pose frames, ~0.69 mean
+   confidence.
+3. MediaPipe Heavy provides **heel and foot-index** landmarks (foot-aware gait
+   events).
+4. **Ultralytics YOLOv8-Pose** is a real fallback but is COCO-17 only (no
+   heel/foot-index → foot-specific metrics carry reduced confidence).
+5. **Demo mode** (`HORALIX_POSE_BACKEND=demo`) is separate and simulated; it is
+   never auto-selected for uploaded analysis.
+6. **MMPose / SAM2 / Depth Anything / WHAM** are advanced and blocked unless
+   their dependencies/assets are installed (see *Advanced Vision Models*).
+
+Auto-best has two modes (env `HORALIX_AUTO_BEST_MODE`): **`fast`** (default) runs
+only the single preferred available backend — fast uploads; **`full`** runs every
+available backend and picks the measured best — used by sample selection /
+verification.
+
+```powershell
+cd apps/api
+.venv\Scripts\activate
+$env:HORALIX_POSE_BACKEND="auto_best"
+uvicorn app.main:app --port 8010
+# release check (with a running API):
+..\..\apps\api\.venv\Scripts\python.exe ..\..\scripts\release_check.py --api http://127.0.0.1:8010 --full
+# best-sample selection (runs all backends across the GaHu set):
+..\..\apps\api\.venv\Scripts\python.exe ..\..\scripts\select_best_gait_sample.py
+```
+
 ### Real AI Vision Setup
 
-The default real backend is **MediaPipe Tasks PoseLandmarker** (`mediapipe_tasks`),
-which loads a local `.task` model and provides heel/foot_index landmarks. A real
-fallback **`ultralytics_pose`** (YOLOv8-Pose, COCO-17, no feet) is also supported.
+The default real backend is **auto_best** → **MediaPipe Tasks PoseLandmarker**
+(`mediapipe_tasks_heavy`/`_full`), which loads a local `.task` model and provides
+heel/foot_index landmarks. A real fallback **`ultralytics_pose`** (YOLOv8-Pose,
+COCO-17, no feet) is also supported.
 
 **Windows (PowerShell):**
 

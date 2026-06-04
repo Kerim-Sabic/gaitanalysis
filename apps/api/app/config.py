@@ -32,6 +32,20 @@ class Settings(BaseSettings):
     # backend is unavailable it fails clearly; demo can be selected explicitly.
     pose_backend: str = "auto_best"
 
+    # Auto-best selection mode (env: HORALIX_AUTO_BEST_MODE).
+    #   "fast" (default): run only the single preferred available backend — fast
+    #          uploads, no redundant multi-backend inference.
+    #   "full": run every available backend and pick the measured best (used by
+    #          sample selection / verification).
+    auto_best_mode: str = "fast"
+
+    # Frame budget for analysis (perf). 0 = use library defaults.
+    # max_analysis_frames caps total analysed frames; frame_stride forces an
+    # additional temporal subsample; analysis_fps_target is informational.
+    max_analysis_frames: int = 900
+    frame_stride: int = 0
+    analysis_fps_target: float = 0.0
+
     # Demo presets force the simulated estimator with a known gait profile so the
     # product is demonstrable before heavy models are deployed.
     allow_demo_mode: bool = True

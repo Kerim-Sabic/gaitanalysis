@@ -263,6 +263,7 @@ class ModelInfo(BaseModel):
     lowest_confidence_keypoints: list[str] = Field(default_factory=list)
     interpolation_used: bool = False
     processing_time_sec: float = 0.0
+    timings_ms: dict[str, float] = Field(default_factory=dict)  # decode/inference/postprocess/total
     simulated_data_used: bool = False
     calibration_status: str = "uncalibrated"
     clinical_validation_status: str = "Not yet validated — clinician review required"
