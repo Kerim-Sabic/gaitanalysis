@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     #          sample selection / verification).
     auto_best_mode: str = "fast"
 
+    # Live (near-real-time) preview backend — lighter model for low latency.
+    # The recorded clip is still analysed by `final_backend` for the report.
+    live_backend: str = "mediapipe_tasks_full"
+    final_backend: str = "auto_best"
+    live_min_detection_confidence: float = 0.4
+
     # Frame budget for analysis (perf). 0 = use library defaults.
     # max_analysis_frames caps total analysed frames; frame_stride forces an
     # additional temporal subsample; analysis_fps_target is informational.

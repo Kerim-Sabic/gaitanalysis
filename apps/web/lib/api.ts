@@ -107,4 +107,47 @@ export const api = {
   reportPdfUrl: (id: string) => `${BASE}/analysis/${id}/report.pdf`,
   reportJsonUrl: (id: string) => `${BASE}/analysis/${id}/report.json`,
   overlayVideoUrl: (id: string) => `${BASE}/analysis/${id}/overlay-video`,
+
+  // Live (near-real-time) preview
+  liveStatus: () => req<LiveStatus>("/live/status"),
+  liveFrame: (blob: Blob, frameIndex: number) => {
+    const fd = new FormData();
+    fd.append("file", blob, "frame.jpg");
+    return req<LiveFrameResult>(`/live/frame?frame_index=${frameIndex}`, {
+      method: "POST",
+      body: fd,
+    });
+  },
 };
+
+export interface LiveStatus {
+  available: boolean;
+  backend: string;
+  model_variant: string;
+  model_version: string;
+  model_file: string;
+  error?: string | null;
+  keypoint_source: string;
+  simulated_data_used: boolean;
+  final_backend: string;
+}
+
+export interface LiveFrameResult {
+  frame_index: number;
+  timestamp: number;
+  width: number;
+  height: number;
+  keypoints: number[][];
+  keypoint_names: string[];
+  valid_pose: boolean;
+  mean_confidence: number;
+  left_leg_visible: boolean;
+  right_leg_visible: boolean;
+  feet_visible: boolean;
+  inference_ms: number;
+  backend: string;
+  keypoint_source: string;
+  simulated_data_used: boolean;
+  warnings: string[];
+  good_capture: boolean;
+}

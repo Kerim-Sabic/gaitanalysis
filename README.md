@@ -109,6 +109,27 @@ uvicorn app.main:app --port 8010
 ..\..\apps\api\.venv\Scripts\python.exe ..\..\scripts\select_best_gait_sample.py
 ```
 
+### Live camera analysis (near-real-time)
+
+Open **`/live-analysis`** (top-nav "Live camera"). The browser opens the webcam
+and streams frames to **`POST /live/frame`**, which runs single-frame MediaPipe
+Tasks (IMAGE mode, `HORALIX_LIVE_BACKEND`, default `mediapipe_tasks_full`,
+~20 ms/frame) and returns real keypoints, confidence, and capture-coaching
+warnings. The page draws the live skeleton (left=amber, right=blue, point colour
+= tracking confidence) with FPS, pose-detected, left/right-leg and feet
+indicators.
+
+This is a **capture-guidance preview** — it is not the report. Pressing
+**Record 10s gait test** captures the clip with `MediaRecorder`, uploads it, and
+runs the **verified** backend (`HORALIX_FINAL_BACKEND`, default `auto_best`) for
+the full metrics + report. The UI states this explicitly; live preview never
+produces the clinical numbers and is never simulated (`simulated_data_used =
+false`, `keypoint_source = real_video_inference`). If the live model or camera is
+unavailable, the page shows a clear message and links to upload analysis (no
+silent fallback).
+
+Contract test (no webcam needed): `scripts/test_live_preview_contract.py`.
+
 ### Real AI Vision Setup
 
 The default real backend is **auto_best** → **MediaPipe Tasks PoseLandmarker**
