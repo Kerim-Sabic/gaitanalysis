@@ -17,6 +17,8 @@ models/**/*.safetensors
 models/**/*.onnx
 models/**/*.bin
 models/**/*.pkl
+models/**/*.npy
+models/**/*.npz
 models/**/*.tar.gz
 models/**/*.zip
 models/**/*.rar

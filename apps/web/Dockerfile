@@ -6,6 +6,8 @@ COPY packages/shared ./packages/shared
 COPY apps/web ./apps/web
 WORKDIR /repo/apps/web
 RUN npm install --no-audit --no-fund
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 

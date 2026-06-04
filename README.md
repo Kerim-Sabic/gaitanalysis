@@ -202,7 +202,7 @@ well while its movement metric is flagged.
 
 ```bash
 cd apps/web
-cp .env.local.example .env.local     # NEXT_PUBLIC_API_URL=http://localhost:8000
+cp .env.local.example .env.local     # NEXT_PUBLIC_API_URL=http://127.0.0.1:8010
 npm install
 npm run dev
 ```
@@ -217,26 +217,25 @@ docker compose up --build
 # web → http://localhost:3000   api → http://localhost:8000
 ```
 
-### Deploy the frontend to Netlify
+### Deploy frontend on Netlify
 
-The root `netlify.toml` builds the Next.js app from this monorepo and deploys
-`apps/web/.next` using Netlify's Next.js runtime. The FastAPI service must be
-deployed separately because Netlify does not run this repository's Python API.
+Deploy branch `feature/netlify-frontend-deploy` with the root `netlify.toml`:
 
-In Netlify, import this repository and set this environment variable for all
-deploy contexts:
+| Netlify setting | Value |
+| --- | --- |
+| Base directory | `apps/web` |
+| Build command | `npm ci --no-audit --no-fund && npm run build` |
+| Publish directory | `.next` |
+| Environment | `NEXT_PUBLIC_API_URL=https://YOUR-BACKEND-DOMAIN` |
 
-```text
-API_URL=https://your-public-fastapi-host.example.com
-```
+FastAPI, MediaPipe, and OpenCV run separately on Render, Railway, Fly.io, or a
+VPS, not Netlify Functions. Set backend
+`HORALIX_CORS_ORIGINS=https://YOUR-NETLIFY-SITE.netlify.app,https://YOUR-CUSTOM-DOMAIN.com`.
+Live analysis requires the Netlify HTTPS frontend and a reachable backend.
 
-The frontend keeps browser requests on the Netlify origin and proxies `/api/*`
-to that backend, so no Netlify-domain CORS entry is required. Deploy using the
-settings from `netlify.toml`, or verify the same build locally:
-
-```bash
-npx netlify-cli build
-```
+Verify locally with `python scripts/check_netlify_frontend.py`. See
+[docs/deployment.md](docs/deployment.md) for backend models, storage, CORS, and
+production safety requirements.
 
 ## Using the app
 

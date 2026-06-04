@@ -18,7 +18,8 @@ import type {
   TestType,
   VideoMetadata,
 } from "@horalix/shared";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, isApiConfigured } from "@/lib/api";
+import { ApiStatusIndicator } from "@/components/layout/api-status";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input, Select } from "@/components/ui/input";
@@ -45,15 +46,25 @@ export default function AnalyzePage() {
   const router = useRouter();
   const [realAvailable, setRealAvailable] = useState<boolean | null>(null);
   const [modelName, setModelName] = useState<string>("");
+  const [apiError, setApiError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!isApiConfigured()) {
+      setRealAvailable(false);
+      setApiError("API not configured. Set NEXT_PUBLIC_API_URL before uploading a video.");
+      return;
+    }
     api
       .modelStatus()
       .then((s) => {
         setRealAvailable(s.real_analysis_available);
         setModelName(s.model_name || s.active_backend);
+        setApiError(null);
       })
-      .catch(() => setRealAvailable(false));
+      .catch((e) => {
+        setRealAvailable(false);
+        setApiError(e instanceof ApiError ? e.message : "Backend is offline or unreachable.");
+      });
   }, []);
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -154,9 +165,14 @@ export default function AnalyzePage() {
           capture quality before analysis.
         </p>
       </div>
+      <ApiStatusIndicator />
 
       {/* Real-model availability banner */}
-      {realAvailable === null ? null : realAvailable ? (
+      {apiError ? (
+        <div className="rounded-xl border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
+          {apiError} Upload and full analysis are disabled until the external backend is reachable.
+        </div>
+      ) : realAvailable === null ? null : realAvailable ? (
         <div className="flex items-center gap-2 rounded-xl border border-good/40 bg-good/10 px-3 py-2 text-xs text-good">
           <span className="h-1.5 w-1.5 rounded-full bg-good" />
           Real AI model ready ({modelName}). Uploaded videos run real pose inference.
@@ -362,11 +378,11 @@ export default function AnalyzePage() {
             Continue <ChevronRight className="h-4 w-4" />
           </Button>
         ) : step === 2 ? (
-          <Button onClick={uploadAndCheck} disabled={!file || busy}>
+          <Button onClick={uploadAndCheck} disabled={!file || busy || !!apiError}>
             {busy ? <Spinner /> : null} Upload & check quality
           </Button>
         ) : (
-          <Button onClick={startAnalysis} disabled={busy}>
+          <Button onClick={startAnalysis} disabled={busy || !!apiError || realAvailable !== true}>
             {busy ? <Spinner /> : null} Run gait analysis
           </Button>
         )}

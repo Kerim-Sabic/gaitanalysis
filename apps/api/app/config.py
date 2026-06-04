@@ -6,6 +6,7 @@ backend behind the same `StorageBackend` interface (see ``storage.py``).
 """
 from __future__ import annotations
 
+import json
 from functools import lru_cache
 from pathlib import Path
 
@@ -56,8 +57,8 @@ class Settings(BaseSettings):
     # product is demonstrable before heavy models are deployed.
     allow_demo_mode: bool = True
 
-    # CORS
-    cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
+    # CORS. Accepts comma-separated origins (recommended) or a JSON list.
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
     # Analysis constraints
     min_video_seconds: float = 2.0
@@ -75,6 +76,18 @@ class Settings(BaseSettings):
     @property
     def reports_dir(self) -> Path:
         return self.data_dir / "reports"
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        raw = self.cors_origins.strip()
+        if raw.startswith("["):
+            try:
+                values = json.loads(raw)
+            except json.JSONDecodeError:
+                values = []
+        else:
+            values = raw.split(",")
+        return [str(origin).strip().rstrip("/") for origin in values if str(origin).strip()]
 
     def ensure_dirs(self) -> None:
         for d in (self.data_dir, self.uploads_dir, self.processed_dir, self.reports_dir):

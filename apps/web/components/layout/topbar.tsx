@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Activity, LayoutDashboard, PlusCircle, Video } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "./theme-toggle";
+import { ApiStatusIndicator } from "./api-status";
 
 const NAV = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
@@ -56,6 +57,7 @@ export function Topbar() {
         </nav>
 
         <div className="ml-auto flex items-center gap-3">
+          <ApiStatusIndicator compact />
           <span className="hidden text-[11px] text-fg-subtle sm:inline">
             For clinician review · Not a diagnosis
           </span>

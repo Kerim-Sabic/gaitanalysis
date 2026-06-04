@@ -5,7 +5,14 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Camera, CircleDot, Upload, Video } from "lucide-react";
 import { confidenceColor } from "@horalix/shared";
-import { api, ApiError, type LiveFrameResult, type LiveStatus } from "@/lib/api";
+import {
+  api,
+  ApiError,
+  isApiConfigured,
+  type LiveFrameResult,
+  type LiveStatus,
+} from "@/lib/api";
+import { ApiStatusIndicator } from "@/components/layout/api-status";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -108,8 +115,13 @@ export default function LiveAnalysisPage() {
           const span = (now - frameTimes.current[0]) / 1000;
           setFps(Math.round((frameTimes.current.length - 1) / Math.max(span, 0.001)));
         }
-      } catch {
-        /* drop this frame; keep preview responsive */
+      } catch (e) {
+        if (
+          e instanceof ApiError &&
+          (e.code === "api_not_configured" || e.code === "api_unreachable")
+        ) {
+          setError(e.message);
+        }
       } finally {
         busyRef.current = false;
       }
@@ -122,6 +134,11 @@ export default function LiveAnalysisPage() {
     stopRef.current = false;
     grabRef.current = document.createElement("canvas");
     (async () => {
+      if (!isApiConfigured()) {
+        setPhase("unavailable");
+        setError("API not configured. Set NEXT_PUBLIC_API_URL to enable live analysis.");
+        return;
+      }
       try {
         const s = await api.liveStatus();
         setStatus(s);
@@ -130,9 +147,18 @@ export default function LiveAnalysisPage() {
           setError(s.error || "Live preview model unavailable.");
           return;
         }
-      } catch {
+      } catch (e) {
         setPhase("unavailable");
-        setError("Could not reach the API. Is the backend running?");
+        setError(
+          e instanceof ApiError
+            ? e.message
+            : "Backend is offline or unreachable. Backend CORS must allow this Netlify domain.",
+        );
+        return;
+      }
+      if (!window.isSecureContext) {
+        setPhase("denied");
+        setError("Camera access requires HTTPS. Netlify provides HTTPS automatically.");
         return;
       }
       try {
@@ -231,13 +257,14 @@ export default function LiveAnalysisPage() {
             : "Live preview unavailable"}
         </Badge>
       </div>
+      <ApiStatusIndicator />
 
       {phase === "unavailable" || phase === "denied" ? (
         <Card>
           <CardContent className="space-y-3 pt-6">
             <p className="text-sm text-danger">{error}</p>
             <p className="text-xs text-fg-subtle">
-              You can still upload a recorded walking video for full analysis.
+              Configure a reachable FastAPI backend before using live preview or upload analysis.
             </p>
             <Link href="/analyze">
               <Button variant="secondary">
