@@ -156,6 +156,8 @@ class GaitPipeline:
         except VideoError as e:
             raise AnalysisError(str(e), code="video_invalid") from e
         emit("decode", 1 / len(STAGES))
+        _t_decode = time.perf_counter()
+        timings_ms: dict[str, float] = {"decode_ms": round((_t_decode - t0) * 1000.0, 1)}
 
         # 2) Pose estimation — HARD real/demo separation (see module docstring).
         if demo_preset:
@@ -179,6 +181,8 @@ class GaitPipeline:
             raise AnalysisError(f"Pose inference failed: {e}", code="inference_failed") from e
         if seq.num_frames == 0:
             raise AnalysisError("No frames available for pose estimation.", "no_person")
+        _t_infer = time.perf_counter()
+        timings_ms["inference_ms"] = round((_t_infer - _t_decode) * 1000.0, 1)
         from app.models import model_registry
 
         selected_backend = (
@@ -272,6 +276,8 @@ class GaitPipeline:
         valid_pose_frames = int(np.sum(frame_mean > 0.3))
         failed_frames = max(0, smoothed.num_frames - valid_pose_frames)
         lowest = sorted(keypoint_stats, key=lambda s: s.mean_confidence)[:3]
+        timings_ms["postprocess_ms"] = round((time.perf_counter() - _t_infer) * 1000.0, 1)
+        timings_ms["total_ms"] = round((time.perf_counter() - t0) * 1000.0, 1)
         backend_failures = dict(getattr(estimator, "backend_failures", {}))
         from app.pipeline.segmentation.sam2_adapter import SAM2Segmenter
 
@@ -304,6 +310,7 @@ class GaitPipeline:
                 smoothed.interpolated_mask is not None and np.any(smoothed.interpolated_mask)
             ),
             processing_time_sec=round(time.perf_counter() - t0, 3),
+            timings_ms=timings_ms,
             simulated_data_used=is_simulated,
             calibration_status=bundle.calibration_status,
             notes=info.notes,

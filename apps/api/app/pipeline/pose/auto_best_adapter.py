@@ -46,13 +46,28 @@ class AutoBestPoseEstimator(BasePoseEstimator):
             failures.append(f"{name}: {detail or 'unavailable'}")
         return "; ".join(failures)
 
+    def _mode(self) -> str:
+        from app.config import get_settings
+
+        return (get_settings().auto_best_mode or "fast").lower()
+
     def estimate_2d_pose(self, frames: np.ndarray, fps: float) -> PoseSequence:
         results: dict[str, tuple[PoseSequence, float]] = {}
         estimators: dict[str, BasePoseEstimator] = {}
         failures: dict[str, str] = {}
-        for name, adapter in self.CANDIDATES:
+
+        # "fast" mode: run ONLY the single preferred available backend (no
+        # redundant multi-backend inference). "full" mode: run all and compare.
+        fast = self._mode() == "fast"
+        candidates = list(self.CANDIDATES)
+        ran_any = False
+        for name, adapter in candidates:
             if not adapter.is_available():
                 failures[name] = getattr(adapter, "availability_error", lambda: None)() or "unavailable"
+                continue
+            if fast and ran_any:
+                # Preferred backend already ran; record others as skipped.
+                failures[name] = "skipped (auto_best_mode=fast)"
                 continue
             try:
                 estimator = adapter()
@@ -60,11 +75,18 @@ class AutoBestPoseEstimator(BasePoseEstimator):
                 sequence = estimator.estimate_2d_pose(frames, fps)
                 results[name] = (sequence, time.perf_counter() - started)
                 estimators[name] = estimator
+                ran_any = True
             except Exception as exc:
                 failures[name] = f"{type(exc).__name__}: {exc}"
         comparison = compare_backend_results(results, failures)
         self.selected_backend = comparison["selected_backend"]
         self.selection_reason = comparison["selection_reason"]
+        if fast and self.selected_backend:
+            self.selection_reason = (
+                f"fast mode: ran the preferred available backend "
+                f"({self.selected_backend}) without full multi-backend comparison "
+                f"(set HORALIX_AUTO_BEST_MODE=full to compare all)."
+            )
         self.backend_scores = comparison["backend_scores"]
         self.backend_failures = comparison["backend_failures"]
         self.selected_estimator = estimators[self.selected_backend]

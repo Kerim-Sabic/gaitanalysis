@@ -74,6 +74,14 @@ export function ModelTransparency({
         <Row label="Calibration" value={model.calibration_status} />
         <Row label="Detected view" value={quality.detected_view} />
         <Row label="Processing time" value={`${model.processing_time_sec.toFixed(2)}s`} />
+        {model.timings_ms && Object.keys(model.timings_ms).length ? (
+          <Row
+            label="Pipeline timing"
+            value={`decode ${Math.round(model.timings_ms.decode_ms ?? 0)}ms · inference ${Math.round(
+              model.timings_ms.inference_ms ?? 0,
+            )}ms · post ${Math.round(model.timings_ms.postprocess_ms ?? 0)}ms`}
+          />
+        ) : null}
         <Row
           label="Simulated data used"
           value={model.simulated_data_used ? "Yes" : "No"}
