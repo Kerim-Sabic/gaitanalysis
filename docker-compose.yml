@@ -35,52 +35,46 @@ services:
   api-mmpose:
     profiles: ["mmpose"]
     build:
-      context: ./apps/api
-      dockerfile: Dockerfile.mmpose
-    ports:
-      - "8011:8000"
-    environment:
-      HORALIX_POSE_BACKEND: mmpose_rtmw
-      HORALIX_ALLOW_DEMO_MODE: "true"
+      context: .
+      dockerfile: apps/api/Dockerfile.mmpose
     volumes:
-      - ./data:/data
-      - ./models:/models:ro
-    restart: unless-stopped
+      - ./data:/repo/data:ro
+      - ./models:/repo/models:ro
+    restart: "no"
 
   # SAM2 segmentation helper profile (optional):
   #   docker compose --profile sam2 up --build api-sam2
   api-sam2:
     profiles: ["sam2"]
     build:
-      context: ./apps/api
-      dockerfile: Dockerfile.sam2
-    ports:
-      - "8013:8000"
-    environment:
-      HORALIX_POSE_BACKEND: auto_best
-      HORALIX_ENABLE_SAM2: "true"
-      HORALIX_SEGMENTATION_BACKEND: sam2
-      HORALIX_SAM2_MODEL_PATH: /models/segmentation/sam2.1_hiera_tiny.pt
-      HORALIX_ALLOW_DEMO_MODE: "true"
+      context: .
+      dockerfile: apps/api/Dockerfile.sam2
     volumes:
-      - ./data:/data
-      - ./models:/models:ro
-    restart: unless-stopped
+      - ./data:/repo/data:ro
+      - ./models:/repo/models:ro
+    restart: "no"
+
+  # Depth Anything V2 relative-depth verification profile (optional):
+  #   docker compose --profile depth up --build api-depth
+  api-depth:
+    profiles: ["depth"]
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile.depth
+    volumes:
+      - ./data:/repo/data:ro
+      - ./models:/repo/models:ro
+    restart: "no"
 
   api-vision:
     profiles: ["vision"]
     build:
-      context: ./apps/api
-      dockerfile: Dockerfile.vision
-    ports:
-      - "8012:8000"
-    environment:
-      HORALIX_POSE_BACKEND: auto_best
-      HORALIX_ALLOW_DEMO_MODE: "true"
+      context: .
+      dockerfile: apps/api/Dockerfile.vision
     volumes:
-      - ./data:/data
-      - ./models:/models:ro
-    restart: unless-stopped
+      - ./data:/repo/data:ro
+      - ./models:/repo/models:ro
+    restart: "no"
 
   web:
     build:

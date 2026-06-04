@@ -38,11 +38,19 @@ EXTRA_NAMES = [name for name, _ in WHOLEBODY_EXTRA]
 
 def _import_error() -> Optional[str]:
     missing = []
-    for module in ("torch", "mmengine", "mmcv", "mmpose"):
+    for module in ("torch", "mmengine", "mmcv", "mmdet", "mmpose", "ultralytics"):
         try:
             importlib.import_module(module)
         except Exception as exc:
             missing.append(f"{module}: {type(exc).__name__}: {exc}")
+    if not missing:
+        try:
+            importlib.import_module("mmcv._ext")
+        except Exception as exc:
+            missing.append(
+                "mmcv._ext: full compiled MMCV operations are required; "
+                f"{type(exc).__name__}: {exc}"
+            )
     return "; ".join(missing) if missing else None
 
 
@@ -59,10 +67,30 @@ def resolve_rtmw_config() -> Optional[Path]:
     env = os.environ.get("HORALIX_MMPPOSE_CONFIG")
     if env and Path(env).exists():
         return Path(env)
-    config_dir = REPO_ROOT / "models" / "pose" / "rtmw" / "configs"
-    if config_dir.exists():
-        return next(iter(sorted(config_dir.rglob("*.py"))), None)
+    candidates = [
+        REPO_ROOT / "models" / "pose" / "rtmw" / "configs",
+        REPO_ROOT / ".runtime" / "mmpose" / "configs" / "wholebody_2d_keypoint"
+        / "rtmpose" / "cocktail14",
+        Path("/opt/mmpose/configs/wholebody_2d_keypoint/rtmpose/cocktail14"),
+    ]
+    preferred = "rtmw-x_8xb320-270e_cocktail14-384x288.py"
+    for config_dir in candidates:
+        exact = config_dir / preferred
+        if exact.exists():
+            return exact
+        if config_dir.exists():
+            found = next(iter(sorted(config_dir.rglob("*.py"))), None)
+            if found:
+                return found
     return None
+
+
+def resolve_detector() -> Optional[Path]:
+    env = os.environ.get("HORALIX_MMPPOSE_DETECTOR")
+    if env and Path(env).exists():
+        return Path(env)
+    path = REPO_ROOT / "models" / "pose" / "ultralytics" / "yolov8n-pose.pt"
+    return path if path.exists() else None
 
 
 class MMPoseRTMWPoseEstimator(BasePoseEstimator):
@@ -78,7 +106,9 @@ class MMPoseRTMWPoseEstimator(BasePoseEstimator):
         self.checkpoint = Path(checkpoint) if checkpoint else resolve_rtmw_checkpoint()
         self.device = device or ("cuda:0" if _cuda_available() else "cpu")
         self.model_file = str(self.checkpoint or "")
-        self._inferencer = None
+        self.detector_path = resolve_detector()
+        self._model = None
+        self._detector = None
 
     @classmethod
     def is_available(cls) -> bool:
@@ -86,6 +116,7 @@ class MMPoseRTMWPoseEstimator(BasePoseEstimator):
             _import_error() is None
             and resolve_rtmw_config() is not None
             and resolve_rtmw_checkpoint() is not None
+            and resolve_detector() is not None
         )
 
     @classmethod
@@ -100,6 +131,11 @@ class MMPoseRTMWPoseEstimator(BasePoseEstimator):
                 "Matching RTMW config missing. Set HORALIX_MMPPOSE_CONFIG or place the "
                 "matching OpenMMLab config under models/pose/rtmw/configs/."
             )
+        if resolve_detector() is None:
+            return (
+                "Ultralytics detector fallback missing. Expected "
+                "models/pose/ultralytics/yolov8n-pose.pt or HORALIX_MMPPOSE_DETECTOR."
+            )
         return None
 
     def get_model_info(self) -> PoseModelInfo:
@@ -110,40 +146,46 @@ class MMPoseRTMWPoseEstimator(BasePoseEstimator):
             notes=[
                 f"Config: {self.config or '(missing)'}.",
                 f"Checkpoint: {self.checkpoint or '(missing)'}.",
+                f"Detector: {self.detector_path or '(missing)'}.",
                 "Research-grade; matching config/checkpoint and clinical validation are required.",
             ],
         )
 
     def _ensure_model(self):
-        if self._inferencer is not None:
-            return self._inferencer
+        if self._model is not None and self._detector is not None:
+            return self._model, self._detector
         error = self.availability_error()
         if error:
             raise RuntimeError(error)
-        from mmpose.apis import MMPoseInferencer  # type: ignore
+        from mmpose.apis import init_model  # type: ignore
+        from ultralytics import YOLO
 
-        self._inferencer = MMPoseInferencer(
-            pose2d=str(self.config),
-            pose2d_weights=str(self.checkpoint),
-            device=self.device,
-        )
-        return self._inferencer
+        self._model = init_model(str(self.config), str(self.checkpoint), device=self.device)
+        self._detector = YOLO(str(self.detector_path))
+        return self._model, self._detector
 
     def estimate_2d_pose(self, frames: np.ndarray, fps: float) -> PoseSequence:
-        inferencer = self._ensure_model()
+        model, detector = self._ensure_model()
+        from mmpose.apis import inference_topdown  # type: ignore
+
         n, h, w = frames.shape[0], frames.shape[1], frames.shape[2]
         core = np.zeros((n, 17, 3), dtype=np.float64)
         extra = np.zeros((n, len(WHOLEBODY_EXTRA), 3), dtype=np.float64)
-        for i, result in enumerate(inferencer(list(frames), show=False, return_vis=False)):
-            if i >= n:
-                break
-            predictions = result.get("predictions", [[]])
-            instances = predictions[0] if predictions else []
-            if not instances:
+        for i, frame in enumerate(frames):
+            detection = detector.predict(frame, verbose=False, device=self.device)[0]
+            if not len(detection.boxes):
                 continue
-            inst = max(instances, key=lambda item: float(np.mean(item["keypoint_scores"])))
-            points = np.asarray(inst["keypoints"], dtype=float)
-            scores = np.asarray(inst["keypoint_scores"], dtype=float)
+            best = int(np.argmax(detection.boxes.conf.cpu().numpy()))
+            box = detection.boxes.xyxy[best].cpu().numpy().astype(float)[None, :]
+            predictions = inference_topdown(model, frame, bboxes=box)
+            if not predictions:
+                continue
+            instance = max(
+                predictions,
+                key=lambda item: float(np.mean(np.asarray(item.pred_instances.keypoint_scores))),
+            ).pred_instances
+            points = np.asarray(instance.keypoints, dtype=float)[0]
+            scores = np.asarray(instance.keypoint_scores, dtype=float)[0]
             count = min(17, len(points), len(scores))
             core[i, :count, :2] = points[:count, :2]
             core[i, :count, 2] = scores[:count]

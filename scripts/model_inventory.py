@@ -1,48 +1,51 @@
-"""Inventory local model files, runtimes, configs, and integration state."""
+"""Print an unambiguous local model/runtime/inference inventory."""
 from __future__ import annotations
 
-import importlib.util
-from pathlib import Path
-
-import _bootstrap  # noqa: F401
-
-REPO_ROOT = _bootstrap.REPO_ROOT
+from _vision import REPO_ROOT, fix_hint
+from verify_all_vision_models import verify_all
 
 
-def have(name: str) -> bool:
-    try:
-        return importlib.util.find_spec(name) is not None
-    except Exception:
-        return False
+def _size_mb(pattern: str) -> float:
+    return sum(path.stat().st_size for path in REPO_ROOT.glob(pattern)) / 1_000_000
 
 
-def files(pattern: str) -> list[Path]:
-    return sorted(REPO_ROOT.glob(pattern))
+SIZES = {
+    "MediaPipe Full": "models/pose/mediapipe/pose_landmarker_full.task",
+    "MediaPipe Heavy": "models/pose/mediapipe/pose_landmarker_heavy.task",
+    "Ultralytics Pose": "models/pose/ultralytics/yolov8n-pose.pt",
+    "MMPose RTMW": "models/pose/rtmw/*.pth",
+    "MMPose RTMW3D": "models/pose/rtmw3d/*.pth",
+    "SAM2.1 Tiny": "models/segmentation/sam2.1_hiera_tiny.pt",
+    "Depth Anything V2": "models/depth/Depth-Anything-V2-*/*.pth",
+    "WHAM": "models/pose/wham/checkpoints/*.pth.tar",
+}
 
 
 def main() -> int:
-    families = [
-        ("MediaPipe Full", files("models/pose/mediapipe/pose_landmarker_full.task"), "mediapipe", True),
-        ("MediaPipe Heavy", files("models/pose/mediapipe/pose_landmarker_heavy.task"), "mediapipe", True),
-        ("Ultralytics Pose", files("models/pose/ultralytics/yolov8n-pose.pt"), "ultralytics", True),
-        ("MMPose RTMW", files("models/pose/rtmw/*.pth"), "mmpose", True),
-        ("MMPose RTMW3D", files("models/pose/rtmw3d/*.pth"), "mmpose", False),
-        ("SAM2.1 Tiny", files("models/segmentation/sam2.1_hiera_tiny.pt"), "sam2", False),
-        ("Depth Anything V2", files("models/depth/Depth-Anything-V2-*/*.pth"), "depth_anything_v2", False),
-        ("WHAM", files("models/pose/wham/checkpoints/*.pth.tar"), "wham", False),
-    ]
-    print("MODEL                 FILES   SIZE(MB) RUNTIME CONFIG INTEGRATED")
-    for name, found, runtime, integrated in families:
-        size = sum(path.stat().st_size for path in found) / 1_000_000
-        config = bool(files("models/pose/rtmw/configs/*.py")) if "MMPose" in name else True
+    results = verify_all()
+    print("MODEL                 DEP WEIGHT CONFIG LOAD INFER OUTPUT PIPELINE SIZE_MB STATUS")
+    for item in results:
+        size = _size_mb(SIZES[item["model"]])
         print(
-            f"{name:21s} {len(found):5d} {size:10.1f} "
-            f"{str(have(runtime)):7s} {str(config):6s} {str(integrated):10s}"
+            f"{item['model'][:21]:21s} "
+            f"{str(item.get('dependencies_installed', False))[0]:>3s} "
+            f"{str(item.get('weights_present', False))[0]:>6s} "
+            f"{str(item.get('config_present', False))[0]:>6s} "
+            f"{str(item.get('model_loads', False))[0]:>4s} "
+            f"{str(item.get('inference_runs', False))[0]:>5s} "
+            f"{str(item.get('output_detected', False))[0]:>6s} "
+            f"{str(item.get('integrated_into_pipeline', False))[0]:>8s} "
+            f"{size:7.1f} {item['status']}"
         )
-        for path in found:
-            print(f"  - {path.relative_to(REPO_ROOT)} ({path.stat().st_size / 1_000_000:.2f} MB)")
-    print("\nWHAM status: blocked_missing_smpl_assets unless licensed SMPL*.pkl files are supplied.")
-    return 0
+        if item.get("error"):
+            print(f"  Blocker: {item['error']}")
+            print(f"  Exact fix: {fix_hint(item)}")
+        for key in ("isolated_runtime", "config_path", "checkpoint_path", "detector_path", "device"):
+            if item.get(key):
+                print(f"  {key}: {item[key]}")
+    baseline_ok = all(item["status"] == "WORKING" for item in results[:3])
+    advanced_ok = any(item["status"] == "WORKING" for item in results[3:7])
+    return 0 if baseline_ok and advanced_ok else 1
 
 
 if __name__ == "__main__":

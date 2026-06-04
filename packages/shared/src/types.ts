@@ -211,6 +211,7 @@ export interface ModelInfo {
   sam2_status: string;
   depth_status?: string;
   wham_status?: string;
+  helper_models?: Record<string, Record<string, unknown>>;
 }
 
 export interface AnalysisStageState {

@@ -279,6 +279,7 @@ class ModelInfo(BaseModel):
     sam2_status: str = "not_run"
     depth_status: str = "not_run"
     wham_status: str = "not_run"
+    helper_models: dict[str, dict] = Field(default_factory=dict)
 
 
 # --------------------------------------------------------------------------- #

@@ -219,6 +219,8 @@ def build_pdf_report(result: GaitAnalysisResult, case: PatientCase) -> bytes:
          "Valid pose frames", str(mi.valid_pose_frames)],
         ["Mean keypoint confidence", f"{mi.mean_keypoint_confidence:.0%}",
          "Calibration", mi.calibration_status],
+        ["SAM2 segmentation", mi.sam2_status, "Depth helper", mi.depth_status],
+        ["MMPose RTMW", mi.mmpose_status, "WHAM 3D", mi.wham_status],
         ["Lowest-confidence keypoints", ", ".join(mi.lowest_confidence_keypoints) or "—",
          "Interpolation used", "Yes" if mi.interpolation_used else "No"],
         ["Clinical validation", mi.clinical_validation_status, "Pipeline", f"v{mi.pipeline_version}"],
@@ -237,6 +239,15 @@ def build_pdf_report(result: GaitAnalysisResult, case: PatientCase) -> bytes:
             + "; ".join(f"{name}: {reason}" for name, reason in mi.backend_failures.items()),
             ss["Small"],
         ))
+    if mi.helper_models:
+        for name, details in mi.helper_models.items():
+            status = details.get("status", "NOT_RUN")
+            used = "used" if details.get("used_in_analysis") else "not used"
+            error = details.get("error", "")
+            text = f"<b>{name.upper()}:</b> {status}; {used} in this analysis."
+            if error:
+                text += f" Reason: {error}"
+            el.append(Paragraph(text, ss["Small"]))
 
     # Provenance statement (real vs demo).
     if is_demo:

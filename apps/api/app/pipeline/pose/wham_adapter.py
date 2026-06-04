@@ -34,6 +34,8 @@ def _have(mod: str) -> bool:
 def _checkpoint() -> Path | None:
     if not CHECKPOINT_DIR.exists():
         return None
+    for p in CHECKPOINT_DIR.glob("wham*.pth*"):
+        return p
     for p in CHECKPOINT_DIR.glob("*.pth*"):
         return p
     return None
@@ -81,6 +83,7 @@ class WHAMAdapter:
                        "mapping is not enabled in this build.")
         return {
             "model": "WHAM",
+            "weights_present": ckpt is not None,
             "dependencies_installed": deps,
             "checkpoint_present": ckpt is not None,
             "checkpoint_path": str(ckpt) if ckpt else "",

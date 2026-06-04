@@ -46,6 +46,15 @@ class Settings(BaseSettings):
     final_backend: str = "auto_best"
     live_min_detection_confidence: float = 0.4
 
+    # Optional advanced helpers. Disabled by default so the verified
+    # MediaPipe/Ultralytics runtime stays lightweight and stable.
+    enable_sam2: bool = False
+    enable_depth: bool = False
+    enable_wham: bool = False
+    advanced_models_require_docker: bool = False
+    sam2_max_frames: int = 8
+    depth_max_frames: int = 3
+
     # Frame budget for analysis (perf). 0 = use library defaults.
     # max_analysis_frames caps total analysed frames; frame_stride forces an
     # additional temporal subsample; analysis_fps_target is informational.

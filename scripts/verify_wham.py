@@ -1,7 +1,10 @@
-"""Report WHAM 3D status honestly (licensed SMPL assets required; never faked)."""
+"""Report WHAM status honestly; licensed SMPL assets are never downloaded."""
 from __future__ import annotations
 
-from _vision import print_result, working_exit  # noqa: F401
+import json
+import sys
+
+from _vision import print_result
 
 
 def verify():
@@ -12,5 +15,8 @@ def verify():
 
 if __name__ == "__main__":
     result = verify()
-    print_result(result)
-    raise SystemExit(0 if result["status"] in ("WORKING", "PARTIAL", "NOT_REQUIRED") else 1)
+    if "--json" in sys.argv:
+        print(json.dumps(result))
+    else:
+        print_result(result)
+    raise SystemExit(0 if result["status"] == "WORKING" else 1)

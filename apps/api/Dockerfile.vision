@@ -1,19 +1,25 @@
+# Combined baseline + SAM2 + Depth verification runtime. MMPose remains isolated.
 FROM python:3.11-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      git ffmpeg libglib2.0-0 libgl1 build-essential \
+      git ffmpeg libglib2.0-0 libgl1 \
   && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
-COPY requirements-real.txt requirements-sam2.txt requirements-depth.txt ./
+WORKDIR /repo
+COPY apps/api/requirements-real.txt /tmp/requirements-real.txt
 RUN python -m pip install --upgrade pip && \
-    python -m pip install -r requirements-real.txt && \
-    python -m pip install -r requirements-sam2.txt && \
-    python -m pip install -r requirements-depth.txt
+    python -m pip install -r /tmp/requirements-real.txt && \
+    git clone --depth 1 https://github.com/facebookresearch/sam2.git /opt/sam2 && \
+    python -m pip install -e /opt/sam2 && \
+    git clone --depth 1 https://github.com/DepthAnything/Depth-Anything-V2.git /opt/depth-anything-v2
 
-COPY app ./app
+COPY apps/api/app ./apps/api/app
 COPY scripts ./scripts
 
-ENV HORALIX_POSE_BACKEND=auto_best
-EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+ENV PYTHONPATH=/repo/apps/api \
+    HORALIX_DEPTH_SOURCE=/opt/depth-anything-v2 \
+    HORALIX_DEPTH_MODEL_PATH=/repo/models/depth/Depth-Anything-V2-Small/depth_anything_v2_vits.pth \
+    HORALIX_SAM2_MODEL_PATH=/repo/models/segmentation/sam2.1_hiera_tiny.pt \
+    HORALIX_SAM2_DETECTOR_PATH=/repo/models/pose/ultralytics/yolov8n-pose.pt
+
+CMD ["python", "scripts/verify_all_vision_models.py"]

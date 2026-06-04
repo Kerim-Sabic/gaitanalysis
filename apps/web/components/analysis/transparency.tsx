@@ -18,6 +18,33 @@ function Row({ label, value, tone }: { label: string; value: string; tone?: "goo
   );
 }
 
+const helperPurpose: Record<string, string> = {
+  mmpose: "Whole-body pose/keypoints",
+  sam2: "Segmentation-assisted capture quality",
+  depth: "Relative-depth scene metadata",
+  wham: "Optional 3D reconstruction",
+};
+
+function HelperStatus({ name, details }: { name: string; details: Record<string, unknown> }) {
+  const status = String(details.status ?? "NOT_RUN");
+  const active = details.used_in_analysis === true || status === "WORKING";
+  const error = String(details.error ?? "");
+  return (
+    <div className="border-b border-border/60 py-2 last:border-0">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs font-medium text-fg">{name.toUpperCase()}</span>
+        <span className={active ? "text-xs font-medium text-good" : "text-xs font-medium text-fg-subtle"}>
+          {active ? "Active" : status}
+        </span>
+      </div>
+      <p className="mt-0.5 text-[11px] leading-snug text-fg-subtle">
+        {helperPurpose[name] ?? "Optional helper"}
+        {active ? " - used in this analysis." : ` - not used in this analysis${error ? `: ${error}` : "."}`}
+      </p>
+    </div>
+  );
+}
+
 export function ModelTransparency({
   model,
   quality,
@@ -43,9 +70,10 @@ export function ModelTransparency({
           value={model.foot_landmarks_available ? "Available" : "Unavailable"}
           tone={model.foot_landmarks_available ? "good" : "muted"}
         />
-        <Row label="MMPose" value={model.mmpose_status} />
-        <Row label="SAM2" value={model.sam2_status} />
-        <Row label="Segmentation" value={model.segmentation_status} />
+        <Row label="MMPose" value={model.mmpose_status ?? "not_run"} />
+        <Row label="SAM2 segmentation" value={model.sam2_status ?? "not_run"} />
+        <Row label="Depth helper" value={model.depth_status ?? "not_run"} />
+        <Row label="WHAM 3D" value={model.wham_status ?? "not_run"} />
         <Row label="Analysis mode" value={model.analysis_mode} />
         <Row
           label="Real model loaded"
@@ -88,6 +116,13 @@ export function ModelTransparency({
           tone={model.simulated_data_used ? "danger" : "good"}
         />
         <Row label="Clinical validation" value={model.clinical_validation_status} />
+        {model.helper_models && Object.keys(model.helper_models).length ? (
+          <div className="mt-3 border-t border-border/60 pt-1">
+            {Object.entries(model.helper_models).map(([name, details]) => (
+              <HelperStatus key={name} name={name} details={details} />
+            ))}
+          </div>
+        ) : null}
         {model.notes.length ? (
           <p className="mt-3 text-[11px] leading-snug text-fg-subtle">{model.notes.join(" ")}</p>
         ) : null}

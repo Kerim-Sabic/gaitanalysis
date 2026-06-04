@@ -5,6 +5,10 @@ __pycache__/
 .venv-real/
 apps/api/.venv/
 apps/api/.venv-real/
+apps/api/.venv-mmpose/
+apps/api/.venv-sam2/
+apps/api/.venv-depth/
+.runtime/
 *.egg-info/
 
 # Model weights — NEVER commit (large; license-bound). Keep READMEs/.gitkeep only.

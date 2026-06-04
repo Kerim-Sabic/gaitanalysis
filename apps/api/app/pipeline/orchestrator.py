@@ -225,6 +225,9 @@ class GaitPipeline:
 
         # 4) Quality (raw frames + pose coverage).
         quality = self.quality_svc.assess(decoded, smoothed)
+        helper_models, helper_limitations = _run_optional_helpers(
+            decoded.frames, quality, settings, is_demo=mode == AnalysisMode.demo_simulated
+        )
 
         # 4b) Per-keypoint tracking-quality stats (real, from the keypoints).
         keypoint_stats = compute_keypoint_stats(smoothed)
@@ -279,27 +282,29 @@ class GaitPipeline:
         timings_ms["postprocess_ms"] = round((time.perf_counter() - _t_infer) * 1000.0, 1)
         timings_ms["total_ms"] = round((time.perf_counter() - t0) * 1000.0, 1)
         backend_failures = dict(getattr(estimator, "backend_failures", {}))
-        from app.pipeline.segmentation.sam2_adapter import SAM2Segmenter
+        from app.pipeline.pose.mmpose_adapter import MMPoseRTMWPoseEstimator
 
-        sam2_error = SAM2Segmenter().availability_error()
-        sam2_status = (
-            "blocked_dependency" if "not installed" in (sam2_error or "").lower()
-            else ("ok" if not sam2_error else "blocked_runtime")
+        mmpose_error = MMPoseRTMWPoseEstimator.availability_error()
+        mmpose_status = (
+            "WORKING" if selected_backend == "mmpose_rtmw"
+            else ("AVAILABLE_NOT_SELECTED" if mmpose_error is None else _helper_blocked_status(mmpose_error))
         )
+        helper_models["mmpose"] = {
+            "model": "MMPose RTMW whole-body pose",
+            "status": mmpose_status,
+            "used_in_analysis": selected_backend == "mmpose_rtmw",
+            "error": mmpose_error or "",
+        }
         try:
             from app.pipeline.pose.wham_adapter import WHAMAdapter
 
-            wham_status = WHAMAdapter.status()["status"].lower()
+            wham_info = WHAMAdapter.status()
+            wham_status = str(wham_info["status"])
+            helper_models["wham"] = wham_info
         except Exception:
-            wham_status = "not_run"
-        try:
-            from app.pipeline.depth.depth_anything_adapter import DepthAnythingV2Adapter
-
-            depth_status = (
-                "ok" if DepthAnythingV2Adapter.is_available() else "blocked_dependency"
-            )
-        except Exception:
-            depth_status = "not_run"
+            wham_status = "BLOCKED_RUNTIME"
+        sam2_status = str(helper_models["sam2"]["status"])
+        depth_status = str(helper_models["depth"]["status"])
         model_info = ModelInfo(
             pose_model=info.name,
             pose_model_version=info.version,
@@ -327,7 +332,7 @@ class GaitPipeline:
             timings_ms=timings_ms,
             simulated_data_used=is_simulated,
             calibration_status=bundle.calibration_status,
-            notes=info.notes,
+            notes=info.notes + helper_limitations,
             selected_backend=selected_backend,
             selection_reason=getattr(
                 estimator, "selection_reason",
@@ -340,19 +345,18 @@ class GaitPipeline:
                 name in smoothed.all_names()
                 for name in ("left_heel", "right_heel", "left_foot_index", "right_foot_index")
             ),
-            mmpose_status=(
-                "working" if selected_backend == "mmpose_rtmw"
-                else (
-                    "available_not_selected" if "mmpose_rtmw" in backend_scores
-                    else "blocked_local_env"
-                )
-            ),
+            mmpose_status=mmpose_status,
             sam2_status=sam2_status,
             segmentation_status=sam2_status,
             depth_status=depth_status,
             wham_status=wham_status,
+            helper_models=helper_models,
         )
-        result_limitations = bundle.limitations + (events.notes or [])
+        result_limitations = bundle.limitations + (events.notes or []) + helper_limitations
+        if wham_status != "WORKING":
+            result_limitations.append(
+                "Single-camera 2D analysis: optional WHAM 3D reconstruction was not active."
+            )
         if smoothed.mean_confidence < 0.35:
             result_limitations.append(
                 "Mean pose confidence is below 0.35; results are shown with low-confidence warnings."
@@ -432,6 +436,128 @@ class GaitPipeline:
 
 
 # --------------------------------------------------------------------------- #
+def _run_optional_helpers(frames, quality, settings, *, is_demo: bool) -> tuple[dict, list[str]]:
+    """Run explicitly enabled advanced helpers without making pose analysis fragile."""
+    helpers: dict[str, dict] = {}
+    limitations: list[str] = []
+
+    from app.pipeline.segmentation.sam2_adapter import SAM2Segmenter
+
+    sam2 = SAM2Segmenter()
+    if is_demo:
+        helpers["sam2"] = {
+            **sam2.status(),
+            "status": "NOT_RUN_DEMO",
+            "used_in_analysis": False,
+            "error": "Advanced helpers are not run on simulated demo data.",
+        }
+    elif not settings.enable_sam2:
+        helpers["sam2"] = {
+            **sam2.status(),
+            "used_in_analysis": False,
+        }
+    else:
+        try:
+            sam2.segment_person(_sample_helper_frames(frames, settings.sam2_max_frames))
+            helpers["sam2"] = {
+                **sam2.status(),
+                "used_in_analysis": True,
+                "purpose": "Segmentation-assisted capture quality",
+            }
+            limitations.append(
+                "SAM2 capture-quality metadata is derived from sampled-frame segmentation; "
+                "masks are not propagated across every video frame."
+            )
+            full_body = float(sam2.last_metadata.get("full_body_visibility_estimate", 0))
+            feet = float(sam2.last_metadata.get("feet_region_visibility_estimate", 0))
+            if full_body < 0.7:
+                quality.warnings.append(
+                    "SAM2 person masks indicate the full body may not be consistently visible."
+                )
+            if feet < 0.1:
+                quality.warnings.append(
+                    "SAM2 person masks indicate limited visibility in the feet region."
+                )
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            helpers["sam2"] = {
+                **sam2.status(),
+                "status": (
+                    "DOCKER_REQUIRED"
+                    if settings.advanced_models_require_docker
+                    else "BLOCKED_RUNTIME"
+                ),
+                "used_in_analysis": False,
+                "error": error,
+            }
+            limitations.append(f"SAM2 segmentation helper was enabled but unavailable: {error}")
+
+    from app.pipeline.depth.depth_anything_adapter import (
+        LIMITATION as DEPTH_LIMITATION,
+        DepthAnythingV2Adapter,
+    )
+
+    depth = DepthAnythingV2Adapter()
+    if is_demo:
+        helpers["depth"] = {
+            **depth.status(),
+            "status": "NOT_RUN_DEMO",
+            "used_in_analysis": False,
+            "error": "Advanced helpers are not run on simulated demo data.",
+        }
+    elif not settings.enable_depth:
+        helpers["depth"] = {
+            **depth.status(),
+            "used_in_analysis": False,
+        }
+    else:
+        try:
+            depth.estimate_relative_depth(_sample_helper_frames(frames, settings.depth_max_frames))
+            helpers["depth"] = {
+                **depth.status(),
+                "used_in_analysis": True,
+                "purpose": "Relative-depth scene metadata",
+            }
+            limitations.append(DEPTH_LIMITATION)
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            helpers["depth"] = {
+                **depth.status(),
+                "status": (
+                    "DOCKER_REQUIRED"
+                    if settings.advanced_models_require_docker
+                    else "BLOCKED_RUNTIME"
+                ),
+                "used_in_analysis": False,
+                "error": error,
+            }
+            limitations.append(f"Depth Anything V2 helper was enabled but unavailable: {error}")
+
+    return helpers, limitations
+
+
+def _sample_helper_frames(frames, limit: int):
+    if len(frames) <= max(1, limit):
+        return frames
+    indices = np.unique(np.linspace(0, len(frames) - 1, max(1, limit)).astype(int))
+    return frames[indices]
+
+
+def _helper_blocked_status(error: str) -> str:
+    lowered = error.lower()
+    if "mmcv._ext" in lowered or "compiled mmcv" in lowered:
+        return "DOCKER_REQUIRED"
+    if "licensed" in lowered or "smpl_neutral.pkl" in lowered:
+        return "BLOCKED_LICENSED_ASSETS"
+    if "config" in lowered:
+        return "BLOCKED_CONFIG"
+    if "checkpoint" in lowered or "weight" in lowered:
+        return "BLOCKED_WEIGHT"
+    if any(name in lowered for name in ("dependency", "not installed", "module", "import")):
+        return "BLOCKED_DEPENDENCY"
+    return "BLOCKED_RUNTIME"
+
+
 def _event_consistency(bundle) -> float:
     cv = getattr(bundle, "stride_cv", None)
     cycles = next((m.value for m in bundle.metrics if m.key == "gait_cycles_detected"), 0) or 0

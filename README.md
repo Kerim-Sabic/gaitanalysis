@@ -258,7 +258,8 @@ production safety requirements.
 | **MediaPipe Full/Heavy** (real 2D + feet) | `pipeline/pose/mediapipe_adapter.py` | `pip install mediapipe`, set `HORALIX_POSE_BACKEND=mediapipe_tasks_full` or `mediapipe_tasks_heavy`. |
 | **Ultralytics Pose** (real COCO-17 fallback) | `pipeline/pose/ultralytics_adapter.py` | `pip install -r requirements-real.txt`; foot metrics are explicitly reduced-confidence. |
 | **MMPose RTMW/RTMW3D** (research-grade) | `pipeline/pose/mmpose_adapter.py` | Requires matching config + checkpoint. Use the MMPose Docker profile when local OpenMMLab is incompatible. |
-| **SAM 2** (person masking) | `pipeline/segmentation/sam2_adapter.py` | Checkpoint presence alone is not treated as working; video-mask propagation remains blocked until verified. |
+| **SAM 2** (person masking) | `pipeline/segmentation/sam2_adapter.py` | Real SAM2.1 Tiny frame segmentation is available as an opt-in capture-quality helper in its isolated runtime. |
+| **Depth Anything V2** (relative depth) | `pipeline/depth/depth_anything_adapter.py` | Real relative-depth inference is available as an opt-in helper; it is never treated as clinical distance. |
 | **WHAM** (monocular 3D) | add a `BasePoseEstimator` returning `estimate_3d_pose()` | enables true foot clearance & 3D angles. |
 | **LLM reporting** | `pipeline/narrative.py` (`generate_with_llm`) | receives structured metrics only; guardrails enforced (no invented values, no diagnosis). |
 
@@ -288,10 +289,12 @@ docker compose --profile mmpose up --build api-mmpose
 docker compose --profile vision up --build api-vision
 ```
 
-MMPose requires the checkpoint's matching config at
-`models/pose/rtmw/configs/rtmw-x_384x288.py`. SAM2 and Depth Anything remain
-optional until actual inference output is verified. WHAM remains
-`blocked_missing_smpl_assets` unless legally obtained SMPL model files exist.
+SAM2.1 Tiny and Depth Anything V2 Small have executable real-inference
+verifiers that delegate to ignored isolated runtimes. MMPose RTMW has a
+matching official config/checkpoint/detector but requires compiled MMCV
+operations through the Linux Docker profile. WHAM remains
+`BLOCKED_LICENSED_ASSETS` unless legally obtained SMPL model files exist. See
+[docs/advanced_model_runtime.md](docs/advanced_model_runtime.md).
 
 `FULL MULTI-MODEL VERIFIED` requires best-sample selection, working MediaPipe
 Full and Heavy, at least one advanced real backend, a passing real HTTP upload

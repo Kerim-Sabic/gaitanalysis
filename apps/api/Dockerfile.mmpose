@@ -1,22 +1,28 @@
+# Reproducible Linux RTMW verification runtime with compiled MMCV operations.
 FROM python:3.10-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      git ffmpeg libglib2.0-0 libgl1 build-essential \
+      build-essential git ffmpeg libglib2.0-0 libgl1 \
   && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
-COPY requirements.txt requirements-mmpose.txt ./
+WORKDIR /repo
+COPY apps/api/requirements.txt /tmp/requirements-api.txt
 RUN python -m pip install --upgrade pip openmim && \
-    python -m pip install -r requirements.txt && \
-    python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu && \
-    mim install mmengine mmcv mmdet mmpose
+    python -m pip install -r /tmp/requirements-api.txt && \
+    python -m pip install "numpy<2" ultralytics && \
+    python -m pip install torch==2.1.0 torchvision==0.16.0 \
+      --index-url https://download.pytorch.org/whl/cpu && \
+    mim install "mmengine==0.10.7" "mmcv==2.1.0" && \
+    python -m pip install "mmdet==3.2.0" && \
+    git clone --depth 1 --branch v1.3.2 https://github.com/open-mmlab/mmpose.git /opt/mmpose && \
+    python -m pip install -e /opt/mmpose
 
-COPY app ./app
+COPY apps/api/app ./apps/api/app
 COPY scripts ./scripts
 
-ENV HORALIX_POSE_BACKEND=mmpose_rtmw \
-    HORALIX_MMPPOSE_CONFIG=/models/pose/rtmw/configs/rtmw-x_384x288.py \
-    HORALIX_MMPPOSE_CHECKPOINT=/models/pose/rtmw/rtmw-x_simcc-cocktail14_pt-ucoco_270e-384x288-f840f204_20231122.pth
+ENV PYTHONPATH=/repo/apps/api \
+    HORALIX_MMPPOSE_CONFIG=/opt/mmpose/configs/wholebody_2d_keypoint/rtmpose/cocktail14/rtmw-x_8xb320-270e_cocktail14-384x288.py \
+    HORALIX_MMPPOSE_CHECKPOINT=/repo/models/pose/rtmw/rtmw-x_simcc-cocktail14_pt-ucoco_270e-384x288-f840f204_20231122.pth \
+    HORALIX_MMPPOSE_DETECTOR=/repo/models/pose/ultralytics/yolov8n-pose.pt
 
-EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "scripts/verify_mmpose.py"]
