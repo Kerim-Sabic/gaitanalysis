@@ -20,7 +20,14 @@ models/**/*.pkl
 
 # Sample / patient videos — do not commit
 data/sample_videos/*.mp4
+data/sample_videos/*.avi
 data/sample_videos/*.mov
+data/sample_videos/*.mkv
+data/sample_videos/raw/
+data/sample_videos/processed/
+data/sample_videos/manual_input/
+data/sample_videos/reports/*.json
+data/sample_videos/reports/*.md
 data/processed/model_tests/
 
 # Node
