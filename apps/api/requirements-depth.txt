@@ -1,0 +1,2 @@
+# Optional relative monocular depth helper; not calibrated clinical distance.
+git+https://github.com/DepthAnything/Depth-Anything-V2.git

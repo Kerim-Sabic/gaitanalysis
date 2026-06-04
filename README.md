@@ -22,11 +22,10 @@ video → quality check → person tracking → pose estimation → temporal smo
 gait-event detection → metrics → confidence scoring → clinical flags → report
 ```
 
-It is **model-agnostic**: pose backends (MMPose/RTMPose, MediaPipe, ViTPose,
-WHAM, SAM 2 …) are adapters. When no heavy model is installed it falls back to a
-**simulated** estimator and clearly labels the output as demo / not clinical-grade
-— the gait math is still real and *measures* the (synthetic) motion; nothing is
-hard-coded.
+It is **model-agnostic**: real pose backends are adapters selected through a
+transparent quality comparator. Real uploads never silently fall back to
+simulated data. The simulated estimator is available only through explicit demo
+mode; the gait math still measures that synthetic motion and labels it clearly.
 
 ## What's real vs. demo
 
@@ -35,9 +34,9 @@ hard-coded.
 | Video decode, quality scoring, smoothing (One Euro filter) | Simulated COCO-17 keypoints from a sagittal walking model when no pose model is installed |
 | Gait-event detection (Zeni coordinate method), all metrics, asymmetry, ROM, variability, Mobility Risk Support Score | Demo presets (`normal`, `asymmetric`, `poor_quality`, `tug`) parameterise the simulator; metrics are then genuinely measured from it |
 | Confidence/quality-driven flags, JSON + PDF report, overlay rendering | Demo runs render a neutral figure so quality scoring is genuine and a clip is playable |
-| Adapters for MediaPipe (real, optional) | MMPose / SAM 2 / WHAM adapters are integration-ready placeholders |
+| Verified MediaPipe Full/Heavy and Ultralytics adapters; transparent real-only auto selection | MMPose/SAM2/Depth/WHAM are reported as blocked until their full runtimes and required assets verify |
 
-Every demo result is labelled `analysis_mode = demo` in the UI, PDF and JSON.
+Every demo result is labelled `analysis_mode = demo_simulated` in the UI, PDF and JSON.
 
 ## Architecture (text diagram)
 
@@ -50,7 +49,7 @@ apps/
   web/   Next.js (App Router) · TypeScript · Tailwind · Framer Motion · Recharts
 packages/
   shared/  TypeScript contract mirrored from the Pydantic schemas
-models/    placeholders for pose/segmentation/tracking/gait weights
+models/    local ignored pose/segmentation/tracking/depth weights and configs
 data/      uploads / processed / reports (git-ignored)
 docs/      architecture · clinical_safety · validation_plan · api
 ```
@@ -100,10 +99,10 @@ python ../../scripts/model_healthcheck.py          # full real-analysis chain
 python ../../scripts/test_pose_on_sample_video.py  # needs data/sample_videos/walk_test.mp4
 ```
 
-Run the backend (default backend is already `mediapipe_tasks`):
+Run the backend (default backend is `auto_best`, which compares real backends only):
 
 ```powershell
-$env:HORALIX_POSE_BACKEND="mediapipe_tasks"   # or "ultralytics_pose" / "demo"
+$env:HORALIX_POSE_BACKEND="auto_best"   # or mediapipe_tasks_full / mediapipe_tasks_heavy / ultralytics_pose / demo
 uvicorn app.main:app --port 8000
 ```
 
@@ -183,14 +182,47 @@ docker compose up --build
 
 | Model | File | Steps |
 | --- | --- | --- |
-| **MediaPipe** (real 2D, easiest) | `pipeline/pose/mediapipe_adapter.py` | `pip install mediapipe`, set `HORALIX_POSE_BACKEND=auto` or `mediapipe`. |
-| **MMPose RTMPose/RTMW3D** (research-grade 2D/3D) | `pipeline/pose/mmpose_adapter.py` | `mim install mmengine mmcv mmpose`, fill the inference TODO, set `HORALIX_POSE_BACKEND=mmpose`. |
-| **SAM 2** (person masking) | `pipeline/segmentation/sam2_adapter.py` | install `sam2` + checkpoint, implement `segment_person`. |
+| **MediaPipe Full/Heavy** (real 2D + feet) | `pipeline/pose/mediapipe_adapter.py` | `pip install mediapipe`, set `HORALIX_POSE_BACKEND=mediapipe_tasks_full` or `mediapipe_tasks_heavy`. |
+| **Ultralytics Pose** (real COCO-17 fallback) | `pipeline/pose/ultralytics_adapter.py` | `pip install -r requirements-real.txt`; foot metrics are explicitly reduced-confidence. |
+| **MMPose RTMW/RTMW3D** (research-grade) | `pipeline/pose/mmpose_adapter.py` | Requires matching config + checkpoint. Use the MMPose Docker profile when local OpenMMLab is incompatible. |
+| **SAM 2** (person masking) | `pipeline/segmentation/sam2_adapter.py` | Checkpoint presence alone is not treated as working; video-mask propagation remains blocked until verified. |
 | **WHAM** (monocular 3D) | add a `BasePoseEstimator` returning `estimate_3d_pose()` | enables true foot clearance & 3D angles. |
 | **LLM reporting** | `pipeline/narrative.py` (`generate_with_llm`) | receives structured metrics only; guardrails enforced (no invented values, no diagnosis). |
 
 Config via env (prefix `HORALIX_`): `HORALIX_POSE_BACKEND`, `HORALIX_ALLOW_DEMO_MODE`,
 `HORALIX_DATABASE_URL`, … (see `apps/api/app/config.py`).
+
+## Advanced Vision Models
+
+Supported pose backend values are `auto_best`, `mediapipe_tasks_full`,
+`mediapipe_tasks_heavy`, `mmpose_rtmw`, `mmpose_rtmw3d`, `ultralytics_pose`,
+and explicit `demo`. `auto_best` runs available real backends, scores measured
+pose coverage/confidence/foot quality/jitter/events, and never selects demo.
+
+```powershell
+apps/api/.venv/Scripts/python.exe scripts/select_best_gait_sample.py
+apps/api/.venv/Scripts/python.exe scripts/model_inventory.py
+apps/api/.venv/Scripts/python.exe scripts/verify_all_vision_models.py
+apps/api/.venv/Scripts/python.exe scripts/verify_ultralytics.py
+apps/api/.venv/Scripts/python.exe scripts/verify_mmpose.py
+apps/api/.venv/Scripts/python.exe scripts/verify_sam2.py
+apps/api/.venv/Scripts/python.exe scripts/verify_depth_anything.py
+```
+
+```bash
+docker compose --profile real up --build api-real
+docker compose --profile mmpose up --build api-mmpose
+docker compose --profile vision up --build api-vision
+```
+
+MMPose requires the checkpoint's matching config at
+`models/pose/rtmw/configs/rtmw-x_384x288.py`. SAM2 and Depth Anything remain
+optional until actual inference output is verified. WHAM remains
+`blocked_missing_smpl_assets` unless legally obtained SMPL model files exist.
+
+`FULL MULTI-MODEL VERIFIED` requires best-sample selection, working MediaPipe
+Full and Heavy, at least one advanced real backend, a passing real HTTP upload
+with `simulated_data_used=false`, JSON/PDF/UI provenance, and explicit demo mode.
 
 ## Limitations & validation
 

@@ -154,6 +154,14 @@ class QualityResult(BaseModel):
     duration_ok: bool = True
     framerate_ok: bool = True
     detected_view: CameraView = CameraView.unknown
+    status: str = "PASS_WITH_LIMITATIONS"
+    pose_valid_percentage: float = Field(0.0, ge=0, le=100)
+    person_size_percent: float = Field(0.0, ge=0, le=100)
+    ankle_confidence: float = Field(0.0, ge=0, le=1)
+    heel_confidence: float = Field(0.0, ge=0, le=1)
+    foot_index_confidence: float = Field(0.0, ge=0, le=1)
+    multi_person_risk: float = Field(0.0, ge=0, le=1)
+    occlusion_missing_percentage: float = Field(0.0, ge=0, le=100)
     warnings: list[str] = Field(default_factory=list)
     recommendations: list[str] = Field(default_factory=list)
 
@@ -173,6 +181,8 @@ class Metric(BaseModel):
     # Provenance — confidence is derived from these, not generic.
     source_keypoints: list[str] = Field(default_factory=list)
     source_model: str = ""
+    source_backend: str = ""
+    selected_model: str = ""
     analysis_mode: Optional[AnalysisMode] = None
     limitations: list[str] = Field(default_factory=list)
     confidence_reason: str = ""
@@ -257,6 +267,15 @@ class ModelInfo(BaseModel):
     calibration_status: str = "uncalibrated"
     clinical_validation_status: str = "Not yet validated — clinician review required"
     notes: list[str] = Field(default_factory=list)
+    selected_backend: str = ""
+    selection_reason: str = ""
+    backend_scores: dict[str, dict] = Field(default_factory=dict)
+    backend_failures: dict[str, str] = Field(default_factory=dict)
+    model_limitations: list[str] = Field(default_factory=list)
+    foot_landmarks_available: bool = False
+    segmentation_status: str = "not_run"
+    mmpose_status: str = "not_run"
+    sam2_status: str = "not_run"
 
 
 # --------------------------------------------------------------------------- #

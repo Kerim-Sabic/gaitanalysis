@@ -209,6 +209,8 @@ def build_pdf_report(result: GaitAnalysisResult, case: PatientCase) -> bytes:
     is_demo = result.analysis_mode == AnalysisMode.demo_simulated
     el.append(_kv_table([
         ["Pose model", f"{mi.pose_model} {mi.pose_model_version}", "Backend", mi.pose_backend],
+        ["Selected backend", mi.selected_backend or mi.pose_backend,
+         "Foot landmarks", "Available" if mi.foot_landmarks_available else "Unavailable"],
         ["Analysis mode", mi.analysis_mode.value, "Keypoint source", mi.keypoint_source],
         ["Real model loaded", "Yes" if mi.model_loaded else "No",
          "Model verified", "Yes" if mi.model_verified else "No"],
@@ -221,6 +223,20 @@ def build_pdf_report(result: GaitAnalysisResult, case: PatientCase) -> bytes:
          "Interpolation used", "Yes" if mi.interpolation_used else "No"],
         ["Clinical validation", mi.clinical_validation_status, "Pipeline", f"v{mi.pipeline_version}"],
     ], [38 * mm, 52 * mm, 34 * mm, 46 * mm]))
+    if mi.selection_reason:
+        el.append(Paragraph(f"<b>Selection reason:</b> {mi.selection_reason}", ss["Small"]))
+    if mi.backend_scores:
+        score_text = "; ".join(
+            f"{name}: {details.get('final_score', 0):.1f}/100"
+            for name, details in mi.backend_scores.items()
+        )
+        el.append(Paragraph(f"<b>Compared backend scores:</b> {score_text}", ss["Small"]))
+    if mi.backend_failures:
+        el.append(Paragraph(
+            "<b>Unavailable/failed backends:</b> "
+            + "; ".join(f"{name}: {reason}" for name, reason in mi.backend_failures.items()),
+            ss["Small"],
+        ))
 
     # Provenance statement (real vs demo).
     if is_demo:

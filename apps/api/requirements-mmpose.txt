@@ -1,0 +1,6 @@
+# Install in the dedicated Python 3.10 Linux Docker profile with OpenMIM.
+torch
+torchvision
+mmengine
+mmpose
+mmdet

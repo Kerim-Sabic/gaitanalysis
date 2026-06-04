@@ -59,7 +59,7 @@ class ModelLoader:
 
     @property
     def configured_backend(self) -> str:
-        return registry.canonical(get_settings().pose_backend or "mediapipe_tasks")
+        return registry.canonical(get_settings().pose_backend or "auto_best")
 
     # ------------------------------------------------------------------ #
     def get_real_estimator(self) -> tuple[BasePoseEstimator, AnalysisMode]:
@@ -71,11 +71,14 @@ class ModelLoader:
                 raise ModelUnavailableError(detail)
             spec = registry.REGISTRY[backend]
             try:
-                if self._estimator is None or self._loaded_backend != backend:
-                    self._estimator = spec.adapter()
-                    self._loaded_backend = backend
+                # Estimators hold mutable per-analysis selection/provenance state.
+                # Return a fresh instance so concurrent upload jobs cannot leak
+                # selected-backend metadata into one another.
+                estimator = spec.adapter()
+                self._estimator = estimator
+                self._loaded_backend = backend
                 self._init_error = None
-                return self._estimator, spec.analysis_mode
+                return estimator, spec.analysis_mode
             except Exception as e:  # pragma: no cover - defensive
                 self._init_error = f"{type(e).__name__}: {e}"
                 raise ModelUnavailableError(self._init_error) from e
@@ -123,6 +126,12 @@ class ModelLoader:
             res.sample_used = source
             res.initialized = True
             seq = estimator.estimate_2d_pose(frames, fps)
+            res.backend = getattr(estimator, "selected_backend", "") or self._loaded_backend or res.backend
+            info = estimator.get_model_info()
+            res.model_name = info.name
+            res.model_version = info.version
+            res.model_file = getattr(estimator, "model_file", "")
+            res.device = str(getattr(estimator, "device", "cpu"))
             res.inference_ran = True
             scores = seq.all_keypoints()[..., 2]
             res.landmark_count = int(seq.all_keypoints().shape[1])
@@ -178,6 +187,12 @@ class ModelLoader:
             frames, fps, source = self._sample_frames()
             hc.sample_used = source
             seq = estimator.estimate_2d_pose(frames, fps)
+            checks["model_file_present"] = bool(getattr(estimator, "model_file", "")) or \
+                mode == AnalysisMode.real_ultralytics_pose
+            selected_backend = getattr(estimator, "selected_backend", "") or self._loaded_backend or hc.backend
+            mode = registry.analysis_mode_for_backend(selected_backend)
+            hc.backend = selected_backend
+            hc.analysis_mode = mode.value
             checks["inference_ran"] = seq.num_frames > 0
             checks["pose_sequence_valid"] = (
                 seq.keypoints.ndim == 3 and seq.keypoints.shape[1] == 17
@@ -280,6 +295,15 @@ class ModelLoader:
                 average_confidence=(lv.average_confidence if lv else 0.0),
                 last_healthcheck_status=self._last_healthcheck,
                 simulated_data_used=False,
+                backend_availability={
+                    name: registry.is_real_backend_available(name)
+                    for name, spec in registry.REGISTRY.items() if spec.kind == "real"
+                },
+                backend_errors={
+                    name: (spec.availability_error() or "")
+                    for name, spec in registry.REGISTRY.items()
+                    if spec.kind == "real" and not registry.is_real_backend_available(name)
+                },
             )
 
 

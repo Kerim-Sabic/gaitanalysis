@@ -86,7 +86,9 @@ def main() -> int:
     pdf = _get(f"/analysis/{aid}/report.pdf", raw=True)
 
     checks = {
-        "analysis_mode real": result["analysis_mode"] in ("real_mediapipe_tasks", "real_ultralytics_pose"),
+        "analysis_mode real": result["analysis_mode"] in (
+            "real_mediapipe_tasks", "real_ultralytics_pose", "real_mmpose"
+        ),
         "simulated_data_used false": result["simulated_data_used"] is False,
         "keypoints exist": kp["track"]["frame_count"] > 0,
         "valid_pose_frames>0": ms["model_info"]["valid_pose_frames"] > 0,

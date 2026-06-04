@@ -28,6 +28,8 @@ class ModelStatus(BaseModel):
     average_confidence: float = 0.0
     last_healthcheck_status: str = "unknown"
     simulated_data_used: bool = False
+    backend_availability: dict[str, bool] = Field(default_factory=dict)
+    backend_errors: dict[str, str] = Field(default_factory=dict)
 
 
 class ModelVerifyResult(BaseModel):

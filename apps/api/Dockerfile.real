@@ -19,7 +19,7 @@ COPY scripts ./scripts
 
 # MediaPipe .task weights are mounted/copied at runtime (see docker-compose).
 # Default real backend.
-ENV HORALIX_POSE_BACKEND=mediapipe_tasks \
+ENV HORALIX_POSE_BACKEND=auto_best \
     HORALIX_MEDIAPIPE_MODEL_PATH=/models/pose/mediapipe/pose_landmarker_full.task
 
 EXPOSE 8000

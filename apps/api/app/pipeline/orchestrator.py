@@ -179,6 +179,14 @@ class GaitPipeline:
             raise AnalysisError(f"Pose inference failed: {e}", code="inference_failed") from e
         if seq.num_frames == 0:
             raise AnalysisError("No frames available for pose estimation.", "no_person")
+        from app.models import model_registry
+
+        selected_backend = (
+            getattr(estimator, "selected_backend", "")
+            or getattr(estimator, "backend_id", "")
+            or _backend_label(mode)
+        )
+        mode = model_registry.analysis_mode_for_backend(selected_backend)
 
         # 2a) Demo runs: render the simulated subject into REAL frames so quality
         #     scoring is genuine and a playable clip is produced.
@@ -217,6 +225,14 @@ class GaitPipeline:
         # 4b) Per-keypoint tracking-quality stats (real, from the keypoints).
         keypoint_stats = compute_keypoint_stats(smoothed)
         kp_index = KeypointQualityIndex.from_stats(keypoint_stats)
+        from app.pipeline.pose.quality_comparator import score_pose_sequence
+
+        backend_scores = dict(getattr(estimator, "backend_scores", {}))
+        selected_score = backend_scores.get(selected_backend)
+        if selected_score is None:
+            selected_score = score_pose_sequence(smoothed, backend=selected_backend)
+            backend_scores[selected_backend] = selected_score
+        backend_quality = float(selected_score.get("final_score", 0.0)) / 100.0
 
         # 5) Gait events.
         events = self.event_detector.detect(smoothed)
@@ -239,6 +255,7 @@ class GaitPipeline:
             calibration_status=bundle.calibration_status,
             event_consistency=event_consistency,
             model_name=info.name, mode=mode, limitations=bundle.limitations,
+            source_backend=selected_backend, backend_quality=backend_quality,
         )
         overall_conf = (
             round(float(np.mean([m.confidence for m in bundle.metrics])), 3)
@@ -255,10 +272,18 @@ class GaitPipeline:
         valid_pose_frames = int(np.sum(frame_mean > 0.3))
         failed_frames = max(0, smoothed.num_frames - valid_pose_frames)
         lowest = sorted(keypoint_stats, key=lambda s: s.mean_confidence)[:3]
+        backend_failures = dict(getattr(estimator, "backend_failures", {}))
+        from app.pipeline.segmentation.sam2_adapter import SAM2Segmenter
+
+        sam2_error = SAM2Segmenter().availability_error()
+        sam2_status = (
+            "blocked_dependency" if "not installed" in sam2_error.lower()
+            else "blocked_runtime"
+        )
         model_info = ModelInfo(
             pose_model=info.name,
             pose_model_version=info.version,
-            pose_backend=_backend_label(mode),
+            pose_backend=selected_backend,
             analysis_mode=mode,
             keypoint_format=info.keypoint_format,
             keypoint_source=(
@@ -282,7 +307,33 @@ class GaitPipeline:
             simulated_data_used=is_simulated,
             calibration_status=bundle.calibration_status,
             notes=info.notes,
+            selected_backend=selected_backend,
+            selection_reason=getattr(
+                estimator, "selection_reason",
+                f"Explicitly configured real backend: {selected_backend}.",
+            ),
+            backend_scores=backend_scores,
+            backend_failures=backend_failures,
+            model_limitations=list(getattr(estimator, "model_limitations", info.notes)),
+            foot_landmarks_available=all(
+                name in smoothed.all_names()
+                for name in ("left_heel", "right_heel", "left_foot_index", "right_foot_index")
+            ),
+            mmpose_status=(
+                "working" if selected_backend == "mmpose_rtmw"
+                else (
+                    "available_not_selected" if "mmpose_rtmw" in backend_scores
+                    else "blocked_local_env"
+                )
+            ),
+            sam2_status=sam2_status,
+            segmentation_status=sam2_status,
         )
+        result_limitations = bundle.limitations + (events.notes or [])
+        if smoothed.mean_confidence < 0.35:
+            result_limitations.append(
+                "Mean pose confidence is below 0.35; results are shown with low-confidence warnings."
+            )
 
         result = GaitAnalysisResult(
             analysis_id=analysis_id,
@@ -291,7 +342,7 @@ class GaitPipeline:
             status=AnalysisStatus.completed,
             test_type=test_type,
             analysis_mode=mode,
-            pose_backend=_backend_label(mode),
+            pose_backend=selected_backend,
             keypoint_source=model_info.keypoint_source,
             simulated_data_used=is_simulated,
             quality=quality,
@@ -304,7 +355,7 @@ class GaitPipeline:
             mobility_risk_support_score=bundle.risk_score,
             mobility_risk_band=bundle.risk_band,
             overall_confidence=overall_conf,
-            limitations=bundle.limitations + (events.notes or []),
+            limitations=result_limitations,
             report_summary=narrative["report_summary"],
             patient_summary=narrative["patient_summary"],
             recommendations=narrative["recommendations"],
@@ -333,8 +384,14 @@ class GaitPipeline:
 
         frames: list[PoseFrame] = []
         for i in range(seq.num_frames):
-            pts = [[round(float(x), 1), round(float(y), 1), round(float(s), 3)]
-                   for x, y, s in kp[i]]
+            pts = [
+                [
+                    round(float(x), 1) if np.isfinite(x) else 0.0,
+                    round(float(y), 1) if np.isfinite(y) else 0.0,
+                    round(float(s), 3) if np.isfinite(s) else 0.0,
+                ]
+                for x, y, s in kp[i]
+            ]
             mc = float(np.nanmean(kp[i, :, 2]))
             interp = (
                 [j for j in range(kp.shape[1]) if mask is not None and mask.shape[1] > j and mask[i, j]]
@@ -370,6 +427,8 @@ def _refine_metric_confidence(
     model_name: str,
     mode: AnalysisMode,
     limitations: list[str],
+    source_backend: str,
+    backend_quality: float,
 ) -> None:
     """Recompute each metric's confidence from the tracking quality of its source
     keypoints, and attach provenance. Never inflates confidence for weak keypoints."""
@@ -377,6 +436,8 @@ def _refine_metric_confidence(
         sources = METRIC_SOURCE_KEYPOINTS.get(m.key, RELATED_METRICS_INVERSE.get(m.key, []))
         m.source_keypoints = sources
         m.source_model = model_name
+        m.source_backend = source_backend
+        m.selected_model = model_name
         m.analysis_mode = mode
         m.limitations = list(limitations)
         if not sources:
@@ -390,6 +451,7 @@ def _refine_metric_confidence(
             sources, quality_score=quality_score, calibration_factor=cal,
             event_consistency=event_consistency,
         )
+        conf = round(conf * (0.75 + 0.25 * max(0.0, min(1.0, backend_quality))), 3)
         if m.value is None:
             m.confidence = 0.0
             m.status = MetricStatus.limited
@@ -397,7 +459,10 @@ def _refine_metric_confidence(
             m.confidence = conf
             if conf < 0.45 and m.status != MetricStatus.limited:
                 m.status = MetricStatus.low_confidence
-        m.confidence_reason = reason
+        m.confidence_reason = (
+            f"{reason} Backend gait-quality score {backend_quality:.0%} "
+            f"({source_backend})."
+        )
 
 
 # Allow keypoints in keypoint_quality.RELATED_METRICS to also drive sources if a

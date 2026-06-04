@@ -13,7 +13,7 @@ from .base import BasePoseEstimator
 
 
 def select_pose_estimator(
-    backend: str = "auto",
+    backend: str = "auto_best",
     demo_preset: str | None = None,
 ) -> tuple[BasePoseEstimator, AnalysisMode]:
     """Return ``(estimator, analysis_mode)``.

@@ -5,6 +5,8 @@
 - `scripts/verify_models.py`
 - `scripts/test_pose_on_sample_video.py`
 - `scripts/test_real_upload_flow.py`
+- `scripts/select_best_gait_sample.py`
+- `scripts/test_multimodel_upload_flow.py`
 
 MediaPipe Tasks can initialize and execute without this file, but **FULL REAL
 VERIFIED** requires a real human video that returns valid pose landmarks and
@@ -48,6 +50,18 @@ Generated reports:
 
 - `data/sample_videos/reports/download_report.json`
 - `data/sample_videos/reports/download_report.md`
+
+After downloading/extracting candidates, run the real multi-backend selector:
+
+```powershell
+apps/api/.venv/Scripts/python.exe scripts/select_best_gait_sample.py
+```
+
+It evaluates every local raw/processed/manual candidate using every available
+real pose backend, writes `best_sample_selection.json` and
+`best_sample_selection.md`, and replaces `walk_test.mp4` only with the best
+measured real candidate. A result below 0.35 mean confidence is explicitly
+reported as weak rather than described as a perfect sample.
 
 Health&Gait source: <https://zenodo.org/records/14039922>, licensed CC BY 4.0.
 

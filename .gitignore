@@ -17,6 +17,9 @@ models/**/*.safetensors
 models/**/*.onnx
 models/**/*.bin
 models/**/*.pkl
+models/**/*.tar.gz
+models/**/*.zip
+models/**/*.rar
 
 # Sample / patient videos — do not commit
 data/sample_videos/*.mp4

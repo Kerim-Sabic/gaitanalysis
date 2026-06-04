@@ -9,9 +9,10 @@ core AND preserve the foot landmarks (heel, foot_index) as extended keypoints â€
 these materially improve heel-strike / toe-off timing.
 
 Model resolution order:
-  1. ``HORALIX_MEDIAPIPE_MODEL_PATH``
-  2. ``<repo>/models/pose/mediapipe/pose_landmarker_full.task``
-  3. ``<repo>/apps/api/models/mediapipe/pose_landmarker_full.task``
+  1. explicit constructor path
+  2. ``HORALIX_MEDIAPIPE_<VARIANT>_MODEL_PATH``
+  3. ``HORALIX_MEDIAPIPE_MODEL_PATH`` (Full compatibility override)
+  4. ``<repo>/models/pose/mediapipe/pose_landmarker_<variant>.task``
 
 No landmarks are ever synthesized: frames without a detected pose are recorded
 with zero confidence so downstream confidence/quality honestly degrade.
@@ -47,18 +48,26 @@ EXTRA_LANDMARKS = [
 ]
 EXTRA_NAMES = [name for name, _ in EXTRA_LANDMARKS]
 
-DEFAULT_MODEL_RELPATHS = [
-    "models/pose/mediapipe/pose_landmarker_full.task",
-    "apps/api/models/mediapipe/pose_landmarker_full.task",
-]
+SUPPORTED_VARIANTS = ("full", "heavy", "lite")
 
 
-def resolve_model_path() -> Optional[Path]:
+def resolve_model_path(variant: str = "full") -> Optional[Path]:
+    variant = variant.lower()
+    if variant not in SUPPORTED_VARIANTS:
+        return None
     candidates: list[Path] = []
-    env = os.environ.get("HORALIX_MEDIAPIPE_MODEL_PATH")
-    if env:
-        candidates.append(Path(env))
-    candidates += [REPO_ROOT / rel for rel in DEFAULT_MODEL_RELPATHS]
+    variant_env = os.environ.get(f"HORALIX_MEDIAPIPE_{variant.upper()}_MODEL_PATH")
+    if variant_env:
+        candidates.append(Path(variant_env))
+    if variant == "full":
+        generic_env = os.environ.get("HORALIX_MEDIAPIPE_MODEL_PATH")
+        if generic_env:
+            candidates.append(Path(generic_env))
+    filename = f"pose_landmarker_{variant}.task"
+    candidates += [
+        REPO_ROOT / "models" / "pose" / "mediapipe" / filename,
+        REPO_ROOT / "apps" / "api" / "models" / "mediapipe" / filename,
+    ]
     for c in candidates:
         if c.exists():
             return c
@@ -89,42 +98,46 @@ def detect_device() -> str:
 
 
 class MediaPipePoseEstimator(BasePoseEstimator):
-    """MediaPipe Tasks PoseLandmarker adapter (backend id: ``mediapipe_tasks``)."""
+    """MediaPipe Tasks PoseLandmarker adapter."""
 
-    backend_id = "mediapipe_tasks"
+    model_variant = "full"
+    backend_id = "mediapipe_tasks_full"
 
     def __init__(self, model_path: Optional[str] = None,
-                 min_pose_detection_confidence: float = 0.5):
-        self.model_path = Path(model_path) if model_path else resolve_model_path()
+                 min_pose_detection_confidence: float = 0.5, variant: Optional[str] = None):
+        self.model_variant = (variant or self.model_variant).lower()
+        self.backend_id = f"mediapipe_tasks_{self.model_variant}"
+        self.model_path = Path(model_path) if model_path else resolve_model_path(self.model_variant)
         self.min_pose_detection_confidence = min_pose_detection_confidence
         self.device = detect_device()
         self.model_file = str(self.model_path) if self.model_path else ""
 
     # ------------------------------------------------------------------ #
-    @staticmethod
-    def is_available() -> bool:
-        return tasks_import_error() is None and resolve_model_path() is not None
+    @classmethod
+    def is_available(cls) -> bool:
+        return tasks_import_error() is None and resolve_model_path(cls.model_variant) is not None
 
-    @staticmethod
-    def availability_error() -> Optional[str]:
+    @classmethod
+    def availability_error(cls) -> Optional[str]:
         err = tasks_import_error()
         if err:
             return err
-        if resolve_model_path() is None:
+        if resolve_model_path(cls.model_variant) is None:
             return (
-                "MediaPipe Tasks model file not found. Set HORALIX_MEDIAPIPE_MODEL_PATH "
-                "or place pose_landmarker_full.task under models/pose/mediapipe/."
+                f"MediaPipe Tasks {cls.model_variant} model file not found. Place "
+                f"pose_landmarker_{cls.model_variant}.task under models/pose/mediapipe/."
             )
         return None
 
     def get_model_info(self) -> PoseModelInfo:
         return PoseModelInfo(
-            name="MediaPipe Pose Landmarker (Tasks)",
+            name=f"MediaPipe Pose Landmarker {self.model_variant.title()} (Tasks)",
             version=mediapipe_version(),
             keypoint_format="COCO-17 + feet (heel, foot_index)",
             is_clinical_grade=False,
             notes=[
                 f"Model file: {self.model_file or '(unresolved)'}.",
+                f"Model variant: {self.model_variant}.",
                 "Single-camera 2D pose; depth and out-of-plane motion are limited.",
                 "Research/screening grade â€” clinical validation required.",
             ],
@@ -205,3 +218,13 @@ def _score(lm) -> float:
     vis = float(getattr(lm, "visibility", 0.0) or 0.0)
     pres = float(getattr(lm, "presence", 0.0) or 0.0)
     return max(vis, pres) if (vis or pres) else 0.5
+
+
+class MediaPipeFullPoseEstimator(MediaPipePoseEstimator):
+    model_variant = "full"
+    backend_id = "mediapipe_tasks_full"
+
+
+class MediaPipeHeavyPoseEstimator(MediaPipePoseEstimator):
+    model_variant = "heavy"
+    backend_id = "mediapipe_tasks_heavy"

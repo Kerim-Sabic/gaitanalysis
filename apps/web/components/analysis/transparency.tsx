@@ -37,6 +37,15 @@ export function ModelTransparency({
       <CardContent className="pt-0">
         <Row label="Active model" value={`${model.pose_model} ${model.pose_model_version}`} />
         <Row label="Backend" value={model.pose_backend} />
+        <Row label="Selected backend" value={model.selected_backend || model.pose_backend} />
+        <Row
+          label="Foot landmarks"
+          value={model.foot_landmarks_available ? "Available" : "Unavailable"}
+          tone={model.foot_landmarks_available ? "good" : "muted"}
+        />
+        <Row label="MMPose" value={model.mmpose_status} />
+        <Row label="SAM2" value={model.sam2_status} />
+        <Row label="Segmentation" value={model.segmentation_status} />
         <Row label="Analysis mode" value={model.analysis_mode} />
         <Row
           label="Real model loaded"
@@ -73,6 +82,19 @@ export function ModelTransparency({
         <Row label="Clinical validation" value={model.clinical_validation_status} />
         {model.notes.length ? (
           <p className="mt-3 text-[11px] leading-snug text-fg-subtle">{model.notes.join(" ")}</p>
+        ) : null}
+        {model.selection_reason ? (
+          <p className="mt-3 text-[11px] leading-snug text-fg-subtle">
+            {model.selection_reason}
+          </p>
+        ) : null}
+        {Object.keys(model.backend_scores).length ? (
+          <p className="mt-2 text-[11px] leading-snug text-fg-subtle">
+            Compared:{" "}
+            {Object.entries(model.backend_scores)
+              .map(([name, score]) => `${name} ${Number(score.final_score ?? 0).toFixed(1)}/100`)
+              .join(" · ")}
+          </p>
         ) : null}
       </CardContent>
     </Card>

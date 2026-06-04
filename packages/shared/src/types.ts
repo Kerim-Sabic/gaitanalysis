@@ -90,6 +90,14 @@ export interface QualityResult {
   duration_ok: boolean;
   framerate_ok: boolean;
   detected_view: CameraView;
+  status: string;
+  pose_valid_percentage: number;
+  person_size_percent: number;
+  ankle_confidence: number;
+  heel_confidence: number;
+  foot_index_confidence: number;
+  multi_person_risk: number;
+  occlusion_missing_percentage: number;
   warnings: string[];
   recommendations: string[];
 }
@@ -105,6 +113,8 @@ export interface Metric {
   interpretation: string;
   source_keypoints: string[];
   source_model: string;
+  source_backend: string;
+  selected_model: string;
   analysis_mode?: AnalysisMode | null;
   limitations: string[];
   confidence_reason: string;
@@ -189,6 +199,15 @@ export interface ModelInfo {
   calibration_status: string;
   clinical_validation_status: string;
   notes: string[];
+  selected_backend: string;
+  selection_reason: string;
+  backend_scores: Record<string, Record<string, number | boolean | string>>;
+  backend_failures: Record<string, string>;
+  model_limitations: string[];
+  foot_landmarks_available: boolean;
+  segmentation_status: string;
+  mmpose_status: string;
+  sam2_status: string;
 }
 
 export interface AnalysisStageState {
@@ -268,6 +287,8 @@ export interface ModelStatus {
   last_healthcheck_status: string;
   demo_mode_available: boolean;
   real_analysis_available: boolean;
+  backend_availability: Record<string, boolean>;
+  backend_errors: Record<string, string>;
 }
 
 export interface ModelVerifyResult {
