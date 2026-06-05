@@ -132,10 +132,27 @@ class GaitPipeline:
         video: VideoMetadata,
         test_type: TestType,
         demo_preset: Optional[str] = None,
+        options=None,
         progress: Optional[ProgressCb] = None,
     ) -> AnalysisOutput:
         settings = get_settings()
         t0 = time.perf_counter()
+
+        # Resolve the per-request model-selection plan (falls back to server
+        # defaults when no options were supplied).
+        from app.services.model_capabilities import resolve_analysis_plan
+
+        plan = resolve_analysis_plan(options, settings)
+
+        # Apply per-request calibration / patient inputs before metrics.
+        if options is not None:
+            if options.patient_height_cm:
+                case.height_cm = float(options.patient_height_cm)
+            if options.known_distance_m:
+                video.calibration_distance_m = float(options.known_distance_m)
+                video.calibration_available = True
+            if options.camera_view and options.camera_view.value != "unknown":
+                video.camera_view = options.camera_view
 
         def emit(stage: str, frac: float):
             if progress:
@@ -169,7 +186,10 @@ class GaitPipeline:
             from app.models.model_loader import ModelUnavailableError, get_model_loader
 
             try:
-                estimator, mode = get_model_loader().get_real_estimator()
+                estimator, mode = get_model_loader().get_real_estimator(
+                    backend_override=plan.pose_backend,
+                    auto_best_mode=plan.auto_best_mode,
+                )
             except ModelUnavailableError as e:
                 raise AnalysisError(str(e), code="model_unavailable") from e
 
@@ -226,19 +246,28 @@ class GaitPipeline:
         # 4) Quality (raw frames + pose coverage).
         quality = self.quality_svc.assess(decoded, smoothed)
         helper_models, helper_limitations = _run_optional_helpers(
-            decoded.frames, quality, settings, is_demo=mode == AnalysisMode.demo_simulated
+            decoded.frames, quality, settings,
+            is_demo=mode == AnalysisMode.demo_simulated,
+            enable_sam2=plan.enable_sam2, enable_depth=plan.enable_depth,
         )
         # Strict mode: fail clearly if a required helper was enabled but not active.
         if mode != AnalysisMode.demo_simulated:
-            if settings.require_sam2 and helper_models.get("sam2", {}).get("status") != "WORKING":
+            if plan.require_pose_backend and plan.explicit_pose_backend \
+                    and selected_backend != plan.pose_backend:
                 raise AnalysisError(
-                    "SAM2 was required (HORALIX_REQUIRE_SAM2=true) but is not active: "
+                    f"Pose backend '{plan.pose_backend}' was required but the active "
+                    f"backend was '{selected_backend}'.",
+                    code="pose_backend_required_but_unavailable",
+                )
+            if plan.require_sam2 and helper_models.get("sam2", {}).get("status") != "WORKING":
+                raise AnalysisError(
+                    "SAM2 was required but is not active: "
                     f"{helper_models.get('sam2', {}).get('error') or 'unavailable'}",
                     code="sam2_required_but_unavailable",
                 )
-            if settings.require_depth and helper_models.get("depth", {}).get("status") != "WORKING":
+            if plan.require_depth and helper_models.get("depth", {}).get("status") != "WORKING":
                 raise AnalysisError(
-                    "Depth was required (HORALIX_REQUIRE_DEPTH=true) but is not active: "
+                    "Depth was required but is not active: "
                     f"{helper_models.get('depth', {}).get('error') or 'unavailable'}",
                     code="depth_required_but_unavailable",
                 )
@@ -319,6 +348,31 @@ class GaitPipeline:
             wham_status = "BLOCKED_RUNTIME"
         sam2_status = str(helper_models["sam2"]["status"])
         depth_status = str(helper_models["depth"]["status"])
+
+        # Per-request provenance: requested setup vs what actually executed.
+        sam2_used = bool(helper_models.get("sam2", {}).get("used_in_analysis"))
+        depth_used = bool(helper_models.get("depth", {}).get("used_in_analysis"))
+        analysis_request_prov = {
+            "capture_source": getattr(getattr(options, "capture_source", None), "value", "upload"),
+            "protocol": getattr(getattr(options, "protocol", None), "value", test_type.value),
+            "analysis_quality_mode": plan.quality_mode.value,
+            "pose_backend_requested": plan.pose_backend,
+            "auto_best_mode": plan.auto_best_mode,
+            "sam2_requested": plan.enable_sam2,
+            "depth_requested": plan.enable_depth,
+            "require_selected_pose_backend": plan.require_pose_backend,
+            "require_advanced_helpers": plan.require_sam2 or plan.require_depth,
+            "calibration_mode": getattr(getattr(options, "calibration_mode", None), "value", "none"),
+        }
+        model_execution_prov = {
+            "pose_backend_actual": selected_backend,
+            "pose_backend_honored": (not plan.explicit_pose_backend)
+            or selected_backend == plan.pose_backend,
+            "sam2_active": sam2_used,
+            "depth_active": depth_used,
+            "sam2_status": sam2_status,
+            "depth_status": depth_status,
+        }
         model_info = ModelInfo(
             pose_model=info.name,
             pose_model_version=info.version,
@@ -365,6 +419,8 @@ class GaitPipeline:
             depth_status=depth_status,
             wham_status=wham_status,
             helper_models=helper_models,
+            analysis_request=analysis_request_prov,
+            model_execution=model_execution_prov,
         )
         result_limitations = bundle.limitations + (events.notes or []) + helper_limitations
         if wham_status != "WORKING":
@@ -450,8 +506,14 @@ class GaitPipeline:
 
 
 # --------------------------------------------------------------------------- #
-def _run_optional_helpers(frames, quality, settings, *, is_demo: bool) -> tuple[dict, list[str]]:
-    """Run explicitly enabled advanced helpers without making pose analysis fragile."""
+def _run_optional_helpers(frames, quality, settings, *, is_demo: bool,
+                          enable_sam2: bool, enable_depth: bool) -> tuple[dict, list[str]]:
+    """Run explicitly enabled advanced helpers without making pose analysis fragile.
+
+    ``enable_sam2``/``enable_depth`` are the resolved per-request flags (which may
+    override the server defaults via the analysis setup); the rest of the helper
+    config (frame budgets, docker hint) still comes from ``settings``.
+    """
     helpers: dict[str, dict] = {}
     limitations: list[str] = []
 
@@ -465,7 +527,7 @@ def _run_optional_helpers(frames, quality, settings, *, is_demo: bool) -> tuple[
             "used_in_analysis": False,
             "error": "Advanced helpers are not run on simulated demo data.",
         }
-    elif not settings.enable_sam2:
+    elif not enable_sam2:
         helpers["sam2"] = {
             **sam2.status(),
             "used_in_analysis": False,
@@ -519,7 +581,7 @@ def _run_optional_helpers(frames, quality, settings, *, is_demo: bool) -> tuple[
             "used_in_analysis": False,
             "error": "Advanced helpers are not run on simulated demo data.",
         }
-    elif not settings.enable_depth:
+    elif not enable_depth:
         helpers["depth"] = {
             **depth.status(),
             "used_in_analysis": False,

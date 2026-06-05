@@ -1,15 +1,18 @@
 import type {
+  AnalysisOptions,
   AnalysisProgress,
   CaseSummary,
   DemoPreset,
   GaitAnalysisResult,
   KeypointStat,
+  ModelCapabilities,
   ModelInfo,
   ModelStatus,
   ModelVerifyResult,
   PatientCase,
   PatientCaseCreate,
   PoseTrack,
+  PreflightResponse,
   QualityResult,
   TestType,
   VideoMetadata,
@@ -262,12 +265,19 @@ export const api = {
   // Models (control plane)
   modelStatus: () => apiFetch<ModelStatus>("/models/status"),
   modelVerify: () => apiFetch<ModelVerifyResult>("/models/verify"),
+  modelCapabilities: () => apiFetch<ModelCapabilities>("/models/capabilities"),
 
   // Analysis
+  preflight: (options: AnalysisOptions & { video_id?: string }) =>
+    apiFetch<PreflightResponse>("/analysis/preflight", {
+      method: "POST",
+      body: JSON.stringify(options),
+    }),
   startAnalysis: (payload: {
     video_id: string;
     test_type?: TestType;
     demo_preset?: string;
+    options?: AnalysisOptions;
   }) =>
     apiFetch<AnalysisProgress>("/analysis/start", {
       method: "POST",
@@ -301,8 +311,11 @@ export const api = {
   },
 
   // QR phone-capture pairing
-  createMobileSession: () =>
-    apiFetch<CreateMobileSession>("/mobile/session", { method: "POST" }),
+  createMobileSession: (options?: AnalysisOptions) =>
+    apiFetch<CreateMobileSession>("/mobile/session", {
+      method: "POST",
+      body: options ? JSON.stringify(options) : undefined,
+    }),
   getMobileSession: (id: string, token: string) =>
     apiFetch<MobileSession>(`/mobile/session/${id}?token=${encodeURIComponent(token)}`),
   connectMobileSession: (id: string, token: string) =>

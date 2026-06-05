@@ -19,12 +19,14 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from typing import Optional
+
+from fastapi import APIRouter, Body, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from app.config import get_settings
 from app.pipeline.video_processor import SUPPORTED_SUFFIXES, VideoError, VideoProcessor
-from app.schemas import AnalysisStatus, PatientCase, TestType, VideoMetadata
+from app.schemas import AnalysisOptions, AnalysisStatus, CaptureSource, PatientCase, TestType, VideoMetadata
 from app.services.analysis_service import get_analysis_service
 from app.storage import get_storage
 
@@ -103,17 +105,22 @@ def _auth(session_id: str, token: str) -> dict:
 
 # ------------------------------------------------------------------ #
 @router.post("/session", response_model=CreateSessionResponse)
-def create_session() -> CreateSessionResponse:
+def create_session(options: Optional[AnalysisOptions] = Body(default=None)) -> CreateSessionResponse:
+    """Create a pairing session. The desktop may pass the chosen analysis setup
+    (``options``) so the phone-captured clip inherits the same model selection."""
     session_id = "sess_" + secrets.token_urlsafe(16)
     token = secrets.token_urlsafe(24)
     expires = _now() + SESSION_TTL_SECONDS
     expires_at = datetime.fromtimestamp(expires, tz=timezone.utc).isoformat()
+    if options is not None:
+        options.capture_source = CaptureSource.phone
     with _lock:
         _prune()
         _sessions[session_id] = {
             "id": session_id, "token": token, "status": "waiting",
             "created": _now(), "expires": expires, "expires_at": expires_at,
             "analysis_id": None, "case_id": None, "error": None,
+            "options": options,
         }
     return CreateSessionResponse(
         session_id=session_id, pairing_token=token,
@@ -191,10 +198,18 @@ async def upload_from_phone(session_id: str, token: str,
         raise _err(400, "video_decode_failed", f"Could not read the video. {e}",
                    "Re-record with the in-app camera.") from e
 
+    # Inherit the desktop-chosen setup (model selection + protocol + calibration).
+    options: Optional[AnalysisOptions] = s.get("options")
+    if options is not None:
+        if options.protocol:
+            test_type = options.protocol
+        options.capture_source = CaptureSource.phone
+
     case = PatientCase(
         id=f"case_{uuid.uuid4().hex[:10]}",
         patient_code=f"PHONE-{secrets.token_hex(2).upper()}",
         indication="Phone capture", clinician="Phone capture",
+        height_cm=(options.patient_height_cm if options else None),
     )
     storage.create_case(case)
     video = VideoMetadata(
@@ -207,7 +222,8 @@ async def upload_from_phone(session_id: str, token: str,
 
     service = get_analysis_service()
     progress = service.create_job(case.id)
-    service.submit(progress, case, video, test_type, None)  # real analysis, never demo
+    # Real analysis, never demo; inherits the desktop setup options.
+    service.submit(progress, case, video, test_type, None, options=options)
     with _lock:
         s["status"] = "analyzing"
         s["analysis_id"] = progress.analysis_id

@@ -52,7 +52,11 @@ def main() -> int:
     def chk(n, ok, d=""):
         checks.append((n, bool(ok), d))
 
-    _, created = _call("POST", "/mobile/session")
+    # Create the session WITH a chosen setup so the phone clip inherits it.
+    setup = {"analysis_quality_mode": "advanced_clinical", "protocol": "neuro_gait_screen",
+             "capture_source": "phone"}
+    _, created = _call("POST", "/mobile/session", data=json.dumps(setup).encode(),
+                       headers={"Content-Type": "application/json"})
     sid, token = created.get("session_id"), created.get("pairing_token")
     chk("create session", bool(sid and token), created.get("status", ""))
     chk("mobile_url_path present", "/mobile-capture/" in (created.get("mobile_url_path") or ""))
@@ -88,6 +92,13 @@ def main() -> int:
         chk("simulated_data_used false", r.get("simulated_data_used") is False)
         chk("keypoint_source real", r.get("keypoint_source") == "real_video_inference")
         chk("metrics generated", len(r.get("metrics", [])) > 0)
+        # Setup inheritance: the phone clip ran with the desktop-chosen setup.
+        rq = r.get("model_info", {}).get("analysis_request", {})
+        chk("phone inherited quality mode", rq.get("analysis_quality_mode") == "advanced_clinical",
+            str(rq.get("analysis_quality_mode")))
+        chk("phone inherited capture source", rq.get("capture_source") == "phone",
+            str(rq.get("capture_source")))
+        chk("phone inherited protocol", r.get("test_type") == "neuro_gait_screen", r.get("test_type"))
         _, js = _call("GET", f"/analysis/{aid}/report.json")
         chk("JSON export", js.get("analysis_id") == aid)
         _, pdf = _call("GET", f"/analysis/{aid}/report.pdf", raw=True)

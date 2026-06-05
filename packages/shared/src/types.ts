@@ -35,6 +35,81 @@ export type ReviewStatus = "pending" | "in_review" | "reviewed";
 
 export type DemoPreset = "normal" | "asymmetric" | "poor_quality" | "tug";
 
+// --------------------------------------------------------------------------- //
+// Pre-analysis model-control plane (setup flow)
+// --------------------------------------------------------------------------- //
+export type AnalysisQualityMode = "standard" | "advanced_clinical" | "expert";
+export type CaptureSource = "upload" | "phone" | "live";
+export type CalibrationMode = "none" | "patient_height" | "known_distance";
+
+export interface AnalysisOptions {
+  capture_source?: CaptureSource;
+  protocol?: TestType;
+  analysis_quality_mode?: AnalysisQualityMode;
+  pose_backend?: string | null;
+  auto_best_mode?: string | null;
+  enable_sam2?: boolean | null;
+  enable_depth?: boolean | null;
+  enable_wham?: boolean | null;
+  require_selected_pose_backend?: boolean;
+  require_advanced_helpers?: boolean;
+  calibration_mode?: CalibrationMode;
+  patient_height_cm?: number | null;
+  known_distance_m?: number | null;
+  camera_view?: CameraView;
+  notes?: string | null;
+}
+
+export interface ModelCapability {
+  id: string;
+  name: string;
+  category: "pose_backend" | "helper" | "calibration";
+  kind: "real" | "helper";
+  status: string;
+  available: boolean;
+  selected_by_default: boolean;
+  recommended: boolean;
+  feet_keypoints: boolean;
+  description: string;
+  what_it_does: string;
+  limitations: string[];
+  fix_hint: string;
+  requires_docker: boolean;
+  requires_license: boolean;
+}
+
+export interface QualityModeInfo {
+  id: AnalysisQualityMode;
+  name: string;
+  summary: string;
+  best_for: string;
+  enables_helpers: boolean;
+}
+
+export interface ModelCapabilities {
+  generated_at: string;
+  real_analysis_available: boolean;
+  default_pose_backend: string;
+  auto_best_mode: string;
+  pose_backends: ModelCapability[];
+  helpers: ModelCapability[];
+  quality_modes: QualityModeInfo[];
+  notes: string[];
+}
+
+export interface PreflightResponse {
+  can_start: boolean;
+  analysis_quality_mode: AnalysisQualityMode;
+  pose_backend: string;
+  auto_best_mode: string;
+  will_run: string[];
+  blocked_reasons: string[];
+  warnings: string[];
+  estimated_runtime_sec: number;
+  expected_transparency: Record<string, unknown>;
+  requires: Record<string, boolean>;
+}
+
 export interface PatientCaseCreate {
   patient_code: string;
   age?: number | null;
@@ -212,6 +287,8 @@ export interface ModelInfo {
   depth_status?: string;
   wham_status?: string;
   helper_models?: Record<string, Record<string, unknown>>;
+  analysis_request?: Record<string, unknown>;
+  model_execution?: Record<string, unknown>;
 }
 
 export interface AnalysisStageState {

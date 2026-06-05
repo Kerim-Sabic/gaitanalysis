@@ -54,9 +54,32 @@ HORALIX_CORS_ORIGINS=https://YOUR-NETLIFY-SITE.netlify.app,https://YOUR-CUSTOM-D
 GET  /health
 GET  /live/status
 GET  /models/status
+GET  /models/capabilities   (live model cards for the setup flow)
+POST /analysis/preflight    (resolve setup → plan / blocked reasons)
 POST /live/frame            (multipart image → real keypoints)
 # upload → full analysis → /analysis/{id}/result, /report.pdf, /report.json
 ```
+
+## G0. Pre-analysis model selection (no env vars required)
+Users pick models in the UI at `/analysis/setup`: capture source → protocol →
+analysis quality → model cards → calibration → review. Model availability is read
+live from `GET /models/capabilities` (the frontend never hardcodes status).
+
+- **Standard** — fast real pose only (inherits server helper defaults).
+- **Advanced Clinical** — turns on SAM2 + Depth **when installed**, per request.
+- **Expert** — pin a pose backend, toggle helpers, and require them (fail instead
+  of degrade) via `require_selected_pose_backend` / `require_advanced_helpers`.
+
+The selection is sent as `options` on `POST /analysis/start` and is honored by the
+pipeline **per request** — Advanced Clinical activates SAM2/Depth without setting
+`HORALIX_ENABLE_*`. Phone capture inherits the setup: the desktop passes `options`
+to `POST /mobile/session` and the phone clip runs with the same selection. Each
+result records requested-vs-actual provenance (`model_info.analysis_request` /
+`model_info.model_execution`), shown in the UI, JSON, and PDF.
+
+Local helper scripts: `scripts/run_api_advanced.ps1` (API with SAM2+Depth runtime)
+and `scripts/run_web_local_phone.ps1` (web on the LAN for phone QR). Verify with
+`scripts/test_analysis_setup_preflight.py` and `scripts/test_advanced_mode_request.py`.
 
 ## G2. QR phone-capture deployment
 - Desktop creates a pairing session (`POST /mobile/session`); the phone opens

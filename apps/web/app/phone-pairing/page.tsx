@@ -6,6 +6,8 @@ import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
 import { Check, Copy, RefreshCw, Smartphone, Upload } from "lucide-react";
 import { api, ApiError, getApiBaseUrl, type MobileSession } from "@/lib/api";
+import { loadSetupOptions } from "@/lib/setup-options";
+import type { AnalysisOptions } from "@horalix/shared";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -36,6 +38,7 @@ export default function PhonePairingPage() {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState<number>(0);
+  const [setupOpts, setSetupOpts] = useState<AnalysisOptions | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const start = useCallback(async () => {
@@ -43,7 +46,9 @@ export default function PhonePairingPage() {
     setSession(null);
     setCreated(null);
     try {
-      const s = await api.createMobileSession();
+      const inherited = loadSetupOptions();
+      setSetupOpts(inherited);
+      const s = await api.createMobileSession(inherited ?? undefined);
       setCreated({ id: s.session_id, token: s.pairing_token, path: s.mobile_url_path });
       setSecondsLeft(Math.max(0, Math.round((new Date(s.expires_at).getTime() - Date.now()) / 1000)));
     } catch (e) {
@@ -145,6 +150,23 @@ export default function PhonePairingPage() {
                 <p className="w-full text-center text-[10px] text-fg-subtle">
                   Backend: <span className="tabular">{getApiBaseUrl()}</span>
                 </p>
+                {setupOpts ? (
+                  <p className="w-full text-center text-[10px] text-fg-subtle">
+                    Inherited setup:{" "}
+                    <span className="text-fg">{setupOpts.analysis_quality_mode ?? "standard"}</span>
+                    {" · "}
+                    {setupOpts.protocol ?? "standard_walk"}
+                    {setupOpts.enable_sam2 ? " · SAM2" : ""}
+                    {setupOpts.enable_depth ? " · Depth" : ""}
+                  </p>
+                ) : (
+                  <p className="w-full text-center text-[10px] text-fg-subtle">
+                    Using default analysis setup ·{" "}
+                    <Link href="/analysis/setup" className="text-primary hover:underline">
+                      configure models
+                    </Link>
+                  </p>
+                )}
                 {isLocalUrl ? (
                   <div className="w-full rounded-xl border border-warn/40 bg-warn/10 p-2 text-[11px] text-warn">
                     This QR points to <b>localhost</b>, which a phone cannot reach. Run the

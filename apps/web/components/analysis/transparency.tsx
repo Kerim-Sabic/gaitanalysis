@@ -53,6 +53,10 @@ export function ModelTransparency({
   quality: QualityResult;
 }) {
   const real = !model.simulated_data_used;
+  const req = (model.analysis_request ?? {}) as Record<string, unknown>;
+  const exec = (model.model_execution ?? {}) as Record<string, unknown>;
+  const hasProvenance = Object.keys(req).length > 0 || Object.keys(exec).length > 0;
+  const boolLabel = (v: unknown) => (v === true ? "Yes" : v === false ? "No" : "—");
   return (
     <Card>
       <CardHeader className="flex-row items-center justify-between">
@@ -62,6 +66,28 @@ export function ModelTransparency({
         </Badge>
       </CardHeader>
       <CardContent className="pt-0">
+        {hasProvenance ? (
+          <div className="mb-3 rounded-lg border border-border/60 bg-surface-2/40 p-2">
+            <p className="mb-1 text-[11px] font-medium text-fg-subtle">Requested vs actual</p>
+            <Row label="Quality mode" value={String(req.analysis_quality_mode ?? "—")} />
+            <Row
+              label="Pose backend (requested → actual)"
+              value={`${String(req.pose_backend_requested ?? "—")} → ${String(exec.pose_backend_actual ?? "—")}`}
+              tone={exec.pose_backend_honored === false ? "danger" : "good"}
+            />
+            <Row
+              label="SAM2 (requested → active)"
+              value={`${boolLabel(req.sam2_requested)} → ${boolLabel(exec.sam2_active)}`}
+              tone={req.sam2_requested && !exec.sam2_active ? "danger" : undefined}
+            />
+            <Row
+              label="Depth (requested → active)"
+              value={`${boolLabel(req.depth_requested)} → ${boolLabel(exec.depth_active)}`}
+              tone={req.depth_requested && !exec.depth_active ? "danger" : undefined}
+            />
+            <Row label="Capture source" value={String(req.capture_source ?? "—")} />
+          </div>
+        ) : null}
         <Row label="Active model" value={`${model.pose_model} ${model.pose_model_version}`} />
         <Row label="Backend" value={model.pose_backend} />
         <Row label="Selected backend" value={model.selected_backend || model.pose_backend} />

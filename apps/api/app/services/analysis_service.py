@@ -56,11 +56,12 @@ class AnalysisService:
         video: VideoMetadata,
         test_type: TestType,
         demo_preset: str | None = None,
+        options=None,
     ) -> None:
-        self.executor.submit(self._run, progress, case, video, test_type, demo_preset)
+        self.executor.submit(self._run, progress, case, video, test_type, demo_preset, options)
 
     # ------------------------------------------------------------------ #
-    def _run(self, progress, case, video, test_type, demo_preset):
+    def _run(self, progress, case, video, test_type, demo_preset, options=None):
         progress.status = AnalysisStatus.running
         self._touch(progress)
 
@@ -84,6 +85,7 @@ class AnalysisService:
                 video=video,
                 test_type=test_type,
                 demo_preset=demo_preset,
+                options=options,
                 progress=on_progress,
             )
             self.storage.save_result(output.result)

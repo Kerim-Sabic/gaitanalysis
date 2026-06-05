@@ -62,11 +62,23 @@ class ModelLoader:
         return registry.canonical(get_settings().pose_backend or "auto_best")
 
     # ------------------------------------------------------------------ #
-    def get_real_estimator(self) -> tuple[BasePoseEstimator, AnalysisMode]:
+    def get_real_estimator(
+        self,
+        *,
+        backend_override: Optional[str] = None,
+        auto_best_mode: Optional[str] = None,
+    ) -> tuple[BasePoseEstimator, AnalysisMode]:
+        """Resolve a real estimator. ``backend_override`` lets a single analysis
+        request pin a backend (from the setup flow) without changing server
+        config; ``auto_best_mode`` overrides fast/full just for this run."""
         with self._lock:
-            backend = registry.resolve_real_backend(self.configured_backend)
+            preference = (
+                registry.canonical(backend_override) if backend_override
+                else self.configured_backend
+            )
+            backend = registry.resolve_real_backend(preference)
             if backend is None:
-                detail = self._diagnose()
+                detail = self._diagnose(preference)
                 self._init_error = detail
                 raise ModelUnavailableError(detail)
             spec = registry.REGISTRY[backend]
@@ -75,6 +87,8 @@ class ModelLoader:
                 # Return a fresh instance so concurrent upload jobs cannot leak
                 # selected-backend metadata into one another.
                 estimator = spec.adapter()
+                if backend == "auto_best" and auto_best_mode:
+                    estimator.mode_override = str(auto_best_mode).lower()
                 self._estimator = estimator
                 self._loaded_backend = backend
                 self._init_error = None
@@ -83,8 +97,8 @@ class ModelLoader:
                 self._init_error = f"{type(e).__name__}: {e}"
                 raise ModelUnavailableError(self._init_error) from e
 
-    def _diagnose(self) -> str:
-        pref = self.configured_backend
+    def _diagnose(self, pref: Optional[str] = None) -> str:
+        pref = pref or self.configured_backend
         if pref == "demo":
             return "HORALIX_POSE_BACKEND=demo: real analysis disabled (demo only)."
         spec = registry.REGISTRY.get(pref)

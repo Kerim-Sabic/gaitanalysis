@@ -31,6 +31,9 @@ class AutoBestPoseEstimator(BasePoseEstimator):
         self.model_limitations: list[str] = []
         self.device = "cpu"
         self.model_file = ""
+        # Per-request override of fast/full (set by the model loader from the
+        # analysis setup); falls back to the server-configured mode when None.
+        self.mode_override: str | None = None
 
     @classmethod
     def is_available(cls) -> bool:
@@ -49,7 +52,7 @@ class AutoBestPoseEstimator(BasePoseEstimator):
     def _mode(self) -> str:
         from app.config import get_settings
 
-        return (get_settings().auto_best_mode or "fast").lower()
+        return (self.mode_override or get_settings().auto_best_mode or "fast").lower()
 
     def estimate_2d_pose(self, frames: np.ndarray, fps: float) -> PoseSequence:
         results: dict[str, tuple[PoseSequence, float]] = {}

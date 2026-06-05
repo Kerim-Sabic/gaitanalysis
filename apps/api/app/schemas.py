@@ -101,6 +101,26 @@ class ReviewStatus(str, Enum):
     reviewed = "reviewed"
 
 
+class AnalysisQualityMode(str, Enum):
+    """User-facing analysis presets that drive default model selection."""
+
+    standard = "standard"  # fast, pose-only (no advanced helpers)
+    advanced_clinical = "advanced_clinical"  # SAM2 + Depth ON when available
+    expert = "expert"  # manual backend + helper + strict control
+
+
+class CaptureSource(str, Enum):
+    upload = "upload"
+    phone = "phone"
+    live = "live"
+
+
+class CalibrationMode(str, Enum):
+    none = "none"
+    patient_height = "patient_height"  # use patient_height_cm for scale
+    known_distance = "known_distance"  # use known_distance_m for calibrated speed
+
+
 # --------------------------------------------------------------------------- #
 # Cases & video
 # --------------------------------------------------------------------------- #
@@ -280,6 +300,9 @@ class ModelInfo(BaseModel):
     depth_status: str = "not_run"
     wham_status: str = "not_run"
     helper_models: dict[str, dict] = Field(default_factory=dict)
+    # Per-request provenance: what the user/setup asked for vs what actually ran.
+    analysis_request: dict = Field(default_factory=dict)
+    model_execution: dict = Field(default_factory=dict)
 
 
 # --------------------------------------------------------------------------- #
@@ -362,12 +385,91 @@ class PoseTrack(BaseModel):
     frames: list[PoseFrame]
 
 
+class AnalysisOptions(BaseModel):
+    """Per-request model-selection + capture setup chosen in the pre-analysis flow.
+
+    Resolution-relevant fields default to ``None`` so a bare request keeps the
+    server-configured behaviour. ``analysis_quality_mode`` supplies the defaults
+    (Standard = pose-only; Advanced Clinical = SAM2+Depth on when available;
+    Expert = explicit). Explicit values always win over mode defaults.
+    """
+
+    capture_source: CaptureSource = CaptureSource.upload
+    protocol: TestType = TestType.standard_walk
+    analysis_quality_mode: AnalysisQualityMode = AnalysisQualityMode.standard
+
+    pose_backend: Optional[str] = None  # None -> server default (usually auto_best)
+    auto_best_mode: Optional[str] = None  # fast | full
+    enable_sam2: Optional[bool] = None
+    enable_depth: Optional[bool] = None
+    enable_wham: Optional[bool] = None
+
+    require_selected_pose_backend: bool = False
+    require_advanced_helpers: bool = False
+
+    calibration_mode: CalibrationMode = CalibrationMode.none
+    patient_height_cm: Optional[float] = Field(default=None, ge=50, le=260)
+    known_distance_m: Optional[float] = Field(default=None, gt=0, le=100)
+    camera_view: CameraView = CameraView.unknown
+    notes: Optional[str] = None
+
+
 class StartAnalysisRequest(BaseModel):
     video_id: str
     test_type: Optional[TestType] = None
     demo_preset: Optional[str] = None  # normal | asymmetric | poor_quality | tug
+    options: Optional[AnalysisOptions] = None
 
 
 class CreateDemoRequest(BaseModel):
     preset: str = "normal"  # normal | asymmetric | poor_quality | tug
     patient_code: Optional[str] = None
+
+
+# --------------------------------------------------------------------------- #
+# Model capabilities + preflight (pre-analysis model-control plane)
+# --------------------------------------------------------------------------- #
+class ModelCapability(BaseModel):
+    id: str
+    name: str
+    category: str  # pose_backend | helper | calibration
+    kind: str  # real | helper
+    status: str  # READY | AVAILABLE | DOCKER_REQUIRED | BLOCKED_* | ...
+    available: bool
+    selected_by_default: bool = False
+    recommended: bool = False
+    feet_keypoints: bool = False
+    description: str = ""
+    what_it_does: str = ""
+    limitations: list[str] = Field(default_factory=list)
+    fix_hint: str = ""
+    requires_docker: bool = False
+    requires_license: bool = False
+
+
+class ModelCapabilities(BaseModel):
+    generated_at: datetime = Field(default_factory=_now)
+    real_analysis_available: bool
+    default_pose_backend: str
+    auto_best_mode: str
+    pose_backends: list[ModelCapability] = Field(default_factory=list)
+    helpers: list[ModelCapability] = Field(default_factory=list)
+    quality_modes: list[dict] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
+class PreflightRequest(AnalysisOptions):
+    video_id: Optional[str] = None
+
+
+class PreflightResponse(BaseModel):
+    can_start: bool
+    analysis_quality_mode: AnalysisQualityMode
+    pose_backend: str  # resolved effective backend
+    auto_best_mode: str
+    will_run: list[str] = Field(default_factory=list)
+    blocked_reasons: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    estimated_runtime_sec: float = 0.0
+    expected_transparency: dict = Field(default_factory=dict)
+    requires: dict = Field(default_factory=dict)

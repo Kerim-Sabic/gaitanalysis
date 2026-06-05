@@ -63,6 +63,10 @@ def main() -> int:
         run("live preview contract", lambda: _script(["scripts", "test_live_preview_contract.py"], [args.api]))
         run("complete app flow", lambda: _script(["scripts", "test_complete_app_flow.py"], [args.api]))
         run("phone capture flow", lambda: _script(["scripts", "test_phone_capture_flow.py"], [args.api]))
+        run("analysis setup + preflight",
+            lambda: _script(["scripts", "test_analysis_setup_preflight.py"], [args.api]))
+        run("per-request model selection",
+            lambda: _script(["scripts", "test_advanced_mode_request.py"], [args.api]))
         # When advanced helpers are enabled, they MUST be active in real analysis.
         if str(os.environ.get("HORALIX_ENABLE_SAM2", "")).lower() in ("1", "true", "yes") or \
            str(os.environ.get("HORALIX_ENABLE_DEPTH", "")).lower() in ("1", "true", "yes"):

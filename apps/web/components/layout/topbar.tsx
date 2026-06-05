@@ -10,7 +10,7 @@ import { ApiStatusIndicator } from "./api-status";
 const NAV = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
   { href: "/cases", label: "Cases", icon: Activity },
-  { href: "/analyze", label: "New analysis", icon: PlusCircle },
+  { href: "/analysis/setup", label: "New analysis", icon: PlusCircle },
   { href: "/live-analysis", label: "Live camera", icon: Video },
   { href: "/phone-pairing", label: "Phone capture", icon: QrCode },
 ];

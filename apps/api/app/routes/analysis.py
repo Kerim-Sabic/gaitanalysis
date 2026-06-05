@@ -15,16 +15,26 @@ from app.schemas import (
     GaitAnalysisResult,
     PatientCase,
     PoseTrack,
+    PreflightRequest,
+    PreflightResponse,
     StartAnalysisRequest,
     TestType,
     VideoMetadata,
 )
 from app.services.analysis_service import get_analysis_service
+from app.services.model_capabilities import build_preflight
 from app.storage import get_storage
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
 
 DEMO_PRESETS = {"normal", "asymmetric", "poor_quality", "tug"}
+
+
+@router.post("/preflight", response_model=PreflightResponse)
+def preflight(payload: PreflightRequest) -> PreflightResponse:
+    """Resolve the chosen setup into an executable plan: what will run, blocked
+    reasons, warnings, estimated runtime, and expected model transparency."""
+    return build_preflight(payload)
 
 
 @router.post("/start", response_model=AnalysisProgress)
@@ -59,9 +69,10 @@ def start_analysis(payload: StartAnalysisRequest) -> AnalysisProgress:
                 },
             )
 
-    test_type = payload.test_type or video.test_type
+    test_type = payload.test_type or (payload.options.protocol if payload.options else None) \
+        or video.test_type
     progress = service.create_job(case.id)
-    service.submit(progress, case, video, test_type, payload.demo_preset)
+    service.submit(progress, case, video, test_type, payload.demo_preset, options=payload.options)
     return progress
 
 

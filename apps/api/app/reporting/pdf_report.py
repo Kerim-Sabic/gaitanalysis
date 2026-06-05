@@ -225,6 +225,17 @@ def build_pdf_report(result: GaitAnalysisResult, case: PatientCase) -> bytes:
          "Interpolation used", "Yes" if mi.interpolation_used else "No"],
         ["Clinical validation", mi.clinical_validation_status, "Pipeline", f"v{mi.pipeline_version}"],
     ], [38 * mm, 52 * mm, 34 * mm, 46 * mm]))
+    if mi.analysis_request or mi.model_execution:
+        req, ex = mi.analysis_request or {}, mi.model_execution or {}
+        el.append(Paragraph(
+            "<b>Requested vs actual:</b> "
+            f"quality mode {req.get('analysis_quality_mode', '—')}; "
+            f"pose {req.get('pose_backend_requested', '—')} → {ex.get('pose_backend_actual', '—')}; "
+            f"SAM2 requested {req.get('sam2_requested', False)} → active {ex.get('sam2_active', False)}; "
+            f"Depth requested {req.get('depth_requested', False)} → active {ex.get('depth_active', False)}; "
+            f"capture {req.get('capture_source', '—')}.",
+            ss["Small"],
+        ))
     if mi.selection_reason:
         el.append(Paragraph(f"<b>Selection reason:</b> {mi.selection_reason}", ss["Small"]))
     if mi.backend_scores:
