@@ -88,6 +88,16 @@ function getApiUrl(path: string): string {
 type ApiRequestInit = RequestInit & { timeoutMs?: number };
 
 export async function apiFetch<T>(path: string, init: ApiRequestInit = {}): Promise<T> {
+  // On a deployed host with no NEXT_PUBLIC_API_URL (and not localhost), there is
+  // no backend to reach — fail with a clear, typed error instead of a 404 wall.
+  // Local dev (localhost) is "configured" via the same-origin /api proxy.
+  if (!isApiConfigured()) {
+    throw new ApiError(
+      "API not configured. Set NEXT_PUBLIC_API_URL to the public FastAPI backend URL.",
+      0,
+      "api_not_configured",
+    );
+  }
   const controller = new AbortController();
   const timeout = window.setTimeout(
     () => controller.abort(),
@@ -289,4 +299,54 @@ export const api = {
       timeoutMs: LIVE_TIMEOUT_MS,
     });
   },
+
+  // QR phone-capture pairing
+  createMobileSession: () =>
+    apiFetch<CreateMobileSession>("/mobile/session", { method: "POST" }),
+  getMobileSession: (id: string, token: string) =>
+    apiFetch<MobileSession>(`/mobile/session/${id}?token=${encodeURIComponent(token)}`),
+  connectMobileSession: (id: string, token: string) =>
+    apiFetch<MobileSession>(
+      `/mobile/session/${id}/connect?token=${encodeURIComponent(token)}`,
+      { method: "POST" },
+    ),
+  cancelMobileSession: (id: string, token: string) =>
+    apiFetch<MobileSession>(
+      `/mobile/session/${id}/cancel?token=${encodeURIComponent(token)}`,
+      { method: "POST" },
+    ),
+  uploadFromPhone: (id: string, token: string, blob: Blob, filename: string) => {
+    const fd = new FormData();
+    fd.append("file", blob, filename);
+    return apiFetch<{ ok: boolean; status: string; analysis_id: string }>(
+      `/mobile/session/${id}/upload?token=${encodeURIComponent(token)}`,
+      { method: "POST", body: fd, timeoutMs: UPLOAD_TIMEOUT_MS },
+    );
+  },
 };
+
+export interface CreateMobileSession {
+  session_id: string;
+  pairing_token: string;
+  mobile_url_path: string;
+  expires_at: string;
+  status: string;
+}
+
+export interface MobileSession {
+  session_id: string;
+  status:
+    | "waiting"
+    | "phone_connected"
+    | "uploading"
+    | "analyzing"
+    | "completed"
+    | "error"
+    | "expired"
+    | "cancelled";
+  analysis_id?: string | null;
+  error?: string | null;
+  expires_at: string;
+  seconds_remaining: number;
+  source_device: string;
+}

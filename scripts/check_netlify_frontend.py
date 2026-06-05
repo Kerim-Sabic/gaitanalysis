@@ -96,6 +96,15 @@ def main() -> int:
     for path in frontend_source_files():
         text = path.read_text(encoding="utf-8", errors="ignore")
         if "http://localhost" in text or "http://127.0.0.1" in text:
+            # next.config.mjs may reference a DEVELOPMENT-ONLY proxy target gated
+            # by NODE_ENV — that is not shipped as a production URL, so allow it.
+            dev_gated = (
+                path.name == "next.config.mjs"
+                and "NODE_ENV" in text
+                and "production" in text
+            )
+            if dev_gated:
+                continue
             source_hits.append(str(path.relative_to(ROOT)))
     checks.add(
         "no production localhost URL",

@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.pipeline.pose.mediapipe_adapter import MediaPipePoseEstimator
 from app.pipeline.pose.mmpose_adapter import MMPosePoseEstimator
-from app.routes import analysis, cases, live, models, videos
+from app.routes import analysis, cases, live, mobile_capture, models, videos
 
 settings = get_settings()
 
@@ -33,6 +33,7 @@ app.include_router(videos.router)
 app.include_router(analysis.router)
 app.include_router(models.router)
 app.include_router(live.router)
+app.include_router(mobile_capture.router)
 
 
 @app.get("/", tags=["meta"])

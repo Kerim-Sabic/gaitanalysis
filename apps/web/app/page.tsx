@@ -56,9 +56,14 @@ export default function HomePage() {
                 Start analysis <ArrowRight className="h-4 w-4" />
               </Button>
             </Link>
-            <Link href="/live-analysis">
+            <Link href="/phone-pairing">
               <Button size="lg" variant="secondary">
-                Live camera analysis
+                Use phone camera
+              </Button>
+            </Link>
+            <Link href="/live-analysis">
+              <Button size="lg" variant="ghost">
+                Live camera
               </Button>
             </Link>
             <Link href="/cases">

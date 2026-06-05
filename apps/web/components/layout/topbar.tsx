@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, LayoutDashboard, PlusCircle, Video } from "lucide-react";
+import { Activity, LayoutDashboard, PlusCircle, QrCode, Video } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "./theme-toggle";
 import { ApiStatusIndicator } from "./api-status";
@@ -12,6 +12,7 @@ const NAV = [
   { href: "/cases", label: "Cases", icon: Activity },
   { href: "/analyze", label: "New analysis", icon: PlusCircle },
   { href: "/live-analysis", label: "Live camera", icon: Video },
+  { href: "/phone-pairing", label: "Phone capture", icon: QrCode },
 ];
 
 export function Topbar() {

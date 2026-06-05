@@ -58,6 +58,23 @@ POST /live/frame            (multipart image → real keypoints)
 # upload → full analysis → /analysis/{id}/result, /report.pdf, /report.json
 ```
 
+## G2. QR phone-capture deployment
+- Desktop creates a pairing session (`POST /mobile/session`); the phone opens
+  `/<frontend>/mobile-capture/{session}?token=...` (from the QR), records/uploads,
+  and the clip runs the same verified analysis. Desktop polls and opens the report.
+- **HTTPS is required** on the frontend for phone camera access (Netlify provides it);
+  the backend should also be HTTPS and reachable from phones.
+- Set `NEXT_PUBLIC_APP_URL` to the public frontend origin if the QR must encode a
+  domain different from the browser origin (otherwise `window.location.origin` is used).
+- `HORALIX_CORS_ORIGINS` must include the frontend origin so phone uploads pass CORS.
+- Mobile browser requirements: a modern Chrome/Safari with `getUserMedia` +
+  `MediaRecorder`; camera permission must be granted. Gallery upload is the fallback.
+- Backend upload limit is 400 MB per clip; sessions expire after 15 minutes and are
+  single-use.
+- **Multi-worker production**: the session store is in-memory (single worker). For
+  multiple backend instances/workers, back it with Redis or a database so any worker
+  can resolve a session.
+
 ## H. Safety / privacy
 - Outputs are for clinician review; not a standalone diagnosis; not clinically validated.
 - De-identify subjects (use patient codes/initials; no full names).
