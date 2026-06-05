@@ -228,6 +228,20 @@ class GaitPipeline:
         helper_models, helper_limitations = _run_optional_helpers(
             decoded.frames, quality, settings, is_demo=mode == AnalysisMode.demo_simulated
         )
+        # Strict mode: fail clearly if a required helper was enabled but not active.
+        if mode != AnalysisMode.demo_simulated:
+            if settings.require_sam2 and helper_models.get("sam2", {}).get("status") != "WORKING":
+                raise AnalysisError(
+                    "SAM2 was required (HORALIX_REQUIRE_SAM2=true) but is not active: "
+                    f"{helper_models.get('sam2', {}).get('error') or 'unavailable'}",
+                    code="sam2_required_but_unavailable",
+                )
+            if settings.require_depth and helper_models.get("depth", {}).get("status") != "WORKING":
+                raise AnalysisError(
+                    "Depth was required (HORALIX_REQUIRE_DEPTH=true) but is not active: "
+                    f"{helper_models.get('depth', {}).get('error') or 'unavailable'}",
+                    code="depth_required_but_unavailable",
+                )
 
         # 4b) Per-keypoint tracking-quality stats (real, from the keypoints).
         keypoint_stats = compute_keypoint_stats(smoothed)

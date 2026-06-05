@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
 import { Check, Copy, RefreshCw, Smartphone, Upload } from "lucide-react";
-import { api, ApiError, type MobileSession } from "@/lib/api";
+import { api, ApiError, getApiBaseUrl, type MobileSession } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -88,6 +88,7 @@ export default function PhonePairingPage() {
   }, [created, router]);
 
   const fullUrl = created ? `${appOrigin()}${created.path}` : "";
+  const isLocalUrl = /localhost|127\.0\.0\.1/.test(fullUrl);
   const status = session?.status ?? "waiting";
   const active = ["waiting", "phone_connected", "uploading", "analyzing"].includes(status);
   const mmss = `${Math.floor(secondsLeft / 60)}:${String(secondsLeft % 60).padStart(2, "0")}`;
@@ -141,6 +142,18 @@ export default function PhonePairingPage() {
                 <p className="text-[11px] text-fg-subtle">
                   Expires in <span className="tabular font-medium">{mmss}</span> · no account or app needed
                 </p>
+                <p className="w-full text-center text-[10px] text-fg-subtle">
+                  Backend: <span className="tabular">{getApiBaseUrl()}</span>
+                </p>
+                {isLocalUrl ? (
+                  <div className="w-full rounded-xl border border-warn/40 bg-warn/10 p-2 text-[11px] text-warn">
+                    This QR points to <b>localhost</b>, which a phone cannot reach. Run the
+                    frontend/backend on your computer&apos;s LAN IP (set
+                    <code className="font-mono"> NEXT_PUBLIC_APP_URL</code> +
+                    <code className="font-mono"> NEXT_PUBLIC_API_URL</code>) or use the deployed
+                    Netlify URL. Run <code className="font-mono">scripts/print_local_network_urls.py</code>.
+                  </div>
+                ) : null}
               </>
             ) : (
               <CenteredSpinner label="Creating secure session…" />

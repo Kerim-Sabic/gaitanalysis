@@ -75,6 +75,48 @@ POST /live/frame            (multipart image → real keypoints)
   multiple backend instances/workers, back it with Redis or a database so any worker
   can resolve a session.
 
+## G3. Advanced single-runtime: SAM2 + Depth ACTIVE in real analysis
+By default the app runs MediaPipe + Ultralytics (lightweight). To make **SAM2**
+segmentation and **Depth Anything V2** *active in real analysis* (not just verified),
+install all required deps into ONE venv and enable them:
+
+```powershell
+cd apps/api
+python -m venv .venv ; .venv\Scripts\activate
+python -m pip install -r requirements-real.txt        # MediaPipe + Ultralytics + core
+python -m pip install -r requirements-depth.txt        # Depth Anything V2 (torch + transformers)
+python -m pip install -r requirements-sam2.txt         # official SAM2 (needs torch); pulls hydra-core, iopath
+# run with helpers enabled:
+$env:HORALIX_POSE_BACKEND="auto_best"; $env:HORALIX_AUTO_BEST_MODE="fast"
+$env:HORALIX_ENABLE_SAM2="true"; $env:HORALIX_SEGMENTATION_BACKEND="sam2"
+$env:HORALIX_ENABLE_DEPTH="true"; $env:HORALIX_DEPTH_BACKEND="depth_anything_v2"
+uvicorn app.main:app --host 0.0.0.0 --port 8010
+```
+
+Then real analysis reports `sam2_status=WORKING`, `depth_status=WORKING`,
+`helper_models.sam2.used_in_analysis=true`, with masks/area/feet metadata folded
+into capture quality (shown in UI, JSON, and PDF). Set `HORALIX_REQUIRE_SAM2=true`
+(or `HORALIX_REQUIRE_DEPTH=true`) to make analysis FAIL (`sam2_required_but_unavailable`)
+rather than degrade if a required helper is not active. Verify with
+`scripts/test_real_advanced_analysis.py` and `scripts/diagnose_sam2_pipeline.py`.
+SAM2's relative depth is **not** calibrated clinical distance.
+
+## G4. Real-phone QR demo on the same Wi-Fi (no deploy)
+A phone cannot reach `localhost` on the laptop. Run
+`python scripts/print_local_network_urls.py` for your LAN IP + exact commands:
+
+```powershell
+# backend bound to all interfaces:
+uvicorn app.main:app --host 0.0.0.0 --port 8010   # + HORALIX_CORS_ORIGINS=http://<LAN_IP>:3000
+# frontend on the LAN IP:
+$env:NEXT_PUBLIC_API_URL="http://<LAN_IP>:8010"; $env:NEXT_PUBLIC_APP_URL="http://<LAN_IP>:3000"
+npm run dev -- --hostname 0.0.0.0
+```
+
+The desktop QR page warns when the encoded URL is `localhost` and shows the
+backend URL. For phones requiring HTTPS camera access, use the deployed Netlify
+frontend + a public HTTPS backend.
+
 ## H. Safety / privacy
 - Outputs are for clinician review; not a standalone diagnosis; not clinically validated.
 - De-identify subjects (use patient codes/initials; no full names).

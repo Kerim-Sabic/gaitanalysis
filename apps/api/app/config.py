@@ -54,6 +54,13 @@ class Settings(BaseSettings):
     advanced_models_require_docker: bool = False
     sam2_max_frames: int = 8
     depth_max_frames: int = 3
+    # Helper backend identifiers (informational; adapters resolve weights/paths).
+    segmentation_backend: str = "sam2"
+    depth_backend: str = "depth_anything_v2"
+    # Strict mode: if true and SAM2 is enabled but not active, real analysis fails
+    # with a structured `sam2_required_but_unavailable` error instead of degrading.
+    require_sam2: bool = False
+    require_depth: bool = False
 
     # Frame budget for analysis (perf). 0 = use library defaults.
     # max_analysis_frames caps total analysed frames; frame_stride forces an

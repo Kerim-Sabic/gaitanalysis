@@ -10,6 +10,7 @@ or BLOCKED: <reason>. API-dependent checks need a running server (--api).
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 import time
@@ -62,6 +63,11 @@ def main() -> int:
         run("live preview contract", lambda: _script(["scripts", "test_live_preview_contract.py"], [args.api]))
         run("complete app flow", lambda: _script(["scripts", "test_complete_app_flow.py"], [args.api]))
         run("phone capture flow", lambda: _script(["scripts", "test_phone_capture_flow.py"], [args.api]))
+        # When advanced helpers are enabled, they MUST be active in real analysis.
+        if str(os.environ.get("HORALIX_ENABLE_SAM2", "")).lower() in ("1", "true", "yes") or \
+           str(os.environ.get("HORALIX_ENABLE_DEPTH", "")).lower() in ("1", "true", "yes"):
+            run("real advanced analysis (SAM2/Depth active)",
+                lambda: _script(["scripts", "test_real_advanced_analysis.py"], [args.api]))
         run("release_check strict", lambda: _script(
             ["scripts", "release_check.py"], ["--api", args.api, "--strict"] + (["--full"] if args.full else [])))
     else:
